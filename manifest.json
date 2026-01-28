@@ -1,0 +1,10 @@
+{
+  "id": "vault-ai",
+  "name": "Vault AI",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "AI-assisted vault management using local LLMs (Ollama, LM Studio). Chat with your vault, format notes, and reorganize structure.",
+  "author": "",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}

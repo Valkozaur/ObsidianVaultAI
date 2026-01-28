@@ -1,0 +1,744 @@
+/* Vault AI Plugin Styles */
+
+/* ============================================================================
+   Container & Layout
+   ============================================================================ */
+
+.vault-ai-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.vault-ai-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ============================================================================
+   Connection Status
+   ============================================================================ */
+
+.vault-ai-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.vault-ai-status.ready {
+  color: var(--text-success);
+  background: var(--background-modifier-success);
+}
+
+.vault-ai-status.thinking {
+  color: var(--text-warning);
+  background: var(--background-modifier-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.vault-ai-status.offline {
+  color: var(--text-error);
+  background: var(--background-modifier-error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Status bar */
+.vault-ai-status-ready {
+  color: var(--text-success);
+}
+
+.vault-ai-status-thinking {
+  color: var(--text-warning);
+}
+
+.vault-ai-status-offline {
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   Tab Bar
+   ============================================================================ */
+
+.vault-ai-tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.vault-ai-tab-button {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vault-ai-tab-button:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.vault-ai-tab-button.active {
+  color: var(--text-accent);
+  border-bottom: 2px solid var(--interactive-accent);
+  margin-bottom: -1px;
+}
+
+/* ============================================================================
+   Tab Content
+   ============================================================================ */
+
+.vault-ai-tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* ============================================================================
+   Chat Tab
+   ============================================================================ */
+
+.vault-ai-chat-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.vault-ai-scope-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.vault-ai-scope-dropdown {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.vault-ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  min-height: 200px;
+}
+
+.vault-ai-empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 32px 16px;
+}
+
+.vault-ai-empty-state p {
+  margin: 8px 0;
+}
+
+.vault-ai-hint {
+  font-size: 12px;
+  font-style: italic;
+}
+
+.vault-ai-message {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.vault-ai-message-user {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  margin-left: 24px;
+}
+
+.vault-ai-message-assistant {
+  background: var(--background-secondary);
+  margin-right: 24px;
+}
+
+.vault-ai-message-content {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.vault-ai-message-content p {
+  margin: 0 0 8px 0;
+}
+
+.vault-ai-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Sources */
+.vault-ai-sources {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: 12px;
+}
+
+.vault-ai-sources ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
+.vault-ai-source-link {
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.vault-ai-source-link:hover {
+  text-decoration: underline;
+}
+
+/* Thinking process */
+.vault-ai-thinking {
+  margin-top: 12px;
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+.vault-ai-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.vault-ai-thinking-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.expand-icon {
+  font-size: 10px;
+}
+
+.vault-ai-thinking-content {
+  padding: 0 8px 8px 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-thinking-step {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--background-primary);
+  border-radius: 4px;
+}
+
+.vault-ai-thinking-step strong {
+  color: var(--text-accent);
+}
+
+.vault-ai-thinking-step .reasoning {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.vault-ai-thinking-step .results-count {
+  color: var(--text-success);
+}
+
+/* Input area */
+.vault-ai-input-container {
+  display: flex;
+  gap: 8px;
+}
+
+.vault-ai-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  resize: none;
+}
+
+.vault-ai-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.vault-ai-send-button {
+  padding: 8px 16px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.vault-ai-send-button:hover {
+  filter: brightness(1.1);
+}
+
+/* ============================================================================
+   Format & Structure Tabs
+   ============================================================================ */
+
+.vault-ai-format-tab,
+.vault-ai-structure-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vault-ai-file-info {
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.vault-ai-file-info p {
+  margin: 0;
+}
+
+.vault-ai-warning {
+  color: var(--text-warning);
+}
+
+.vault-ai-instructions label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.vault-ai-custom-instructions {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.vault-ai-analyze-button {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.vault-ai-folder-select {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+/* Suggestions */
+.vault-ai-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vault-ai-loading {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+}
+
+.vault-ai-suggestions-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-suggestions-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.vault-ai-suggestion {
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.vault-ai-suggestion.applied,
+.vault-ai-suggestion.executed {
+  opacity: 0.6;
+  border-left-color: var(--text-success);
+}
+
+.vault-ai-suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vault-ai-type-icon {
+  font-size: 16px;
+}
+
+.vault-ai-category-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  text-transform: uppercase;
+}
+
+.vault-ai-category-badge.category-heading { background: #4a9eff33; color: #4a9eff; }
+.vault-ai-category-badge.category-list { background: #9b59b633; color: #9b59b6; }
+.vault-ai-category-badge.category-frontmatter { background: #27ae6033; color: #27ae60; }
+.vault-ai-category-badge.category-whitespace { background: #95a5a633; color: #95a5a6; }
+.vault-ai-category-badge.category-code-block { background: #e67e2233; color: #e67e22; }
+.vault-ai-category-badge.category-link { background: #3498db33; color: #3498db; }
+
+.vault-ai-applied-badge,
+.vault-ai-executed-badge {
+  font-size: 11px;
+  color: var(--text-success);
+  margin-left: auto;
+}
+
+.vault-ai-suggestion-meta {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.vault-ai-affected-count {
+  color: var(--text-muted);
+}
+
+.vault-ai-reasoning {
+  margin: 4px 0 0 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.vault-ai-suggestion-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.vault-ai-preview-button,
+.vault-ai-apply-button,
+.vault-ai-execute-button {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.vault-ai-preview-button {
+  background: var(--background-modifier-border);
+  border: none;
+  color: var(--text-normal);
+}
+
+.vault-ai-apply-button,
+.vault-ai-execute-button {
+  background: var(--interactive-accent);
+  border: none;
+  color: var(--text-on-accent);
+}
+
+.vault-ai-apply-all-button,
+.vault-ai-execute-all-button {
+  padding: 6px 16px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* History */
+.vault-ai-history-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.vault-ai-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.vault-ai-history-header h5 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.vault-ai-undo-button {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--background-modifier-border);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.vault-ai-history {
+  font-size: 12px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.vault-ai-empty-history {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px;
+}
+
+.vault-ai-history-item {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-history-time {
+  color: var(--text-muted);
+  min-width: 60px;
+}
+
+/* ============================================================================
+   Diff Modal
+   ============================================================================ */
+
+.vault-ai-diff-modal {
+  max-width: 800px;
+}
+
+.vault-ai-diff-modal h2 {
+  margin: 0 0 16px 0;
+}
+
+.vault-ai-diff-container {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.vault-ai-diff-container.unified {
+  flex-direction: column;
+}
+
+.vault-ai-diff-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.vault-ai-diff-column h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.vault-ai-diff-content {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  padding: 8px;
+  overflow-x: auto;
+}
+
+.vault-ai-diff-line {
+  display: flex;
+  white-space: pre;
+}
+
+.line-number {
+  min-width: 30px;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+}
+
+.line-content {
+  flex: 1;
+}
+
+.line-content.removed {
+  background: rgba(255, 0, 0, 0.1);
+}
+
+.line-content.added {
+  background: rgba(0, 255, 0, 0.1);
+}
+
+.vault-ai-diff-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.vault-ai-diff-toggle button {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-border);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.vault-ai-diff-toggle button.active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.vault-ai-diff-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vault-ai-diff-buttons button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* ============================================================================
+   Preview Modal
+   ============================================================================ */
+
+.vault-ai-preview-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.vault-ai-preview-modal .modal-content {
+  background: var(--background-primary);
+  padding: 24px;
+  border-radius: 8px;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.vault-ai-preview-modal h3 {
+  margin: 0 0 16px 0;
+}
+
+.vault-ai-preview-modal ul {
+  margin: 0 0 16px 0;
+  padding-left: 20px;
+}
+
+.vault-ai-operations-list {
+  margin-top: 16px;
+}
+
+.vault-ai-operations-list h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+
+.vault-ai-operations-list p {
+  margin: 4px 0;
+  font-size: 13px;
+  font-family: var(--font-monospace);
+}
+
+.op-type {
+  color: var(--text-accent);
+  font-weight: 500;
+}
+
+.vault-ai-modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.vault-ai-modal-buttons button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* ============================================================================
+   Settings
+   ============================================================================ */
+
+.vault-ai-status-container {
+  margin-top: 16px;
+}
+
+.vault-ai-connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.vault-ai-connection-status.connected {
+  border-left: 3px solid var(--text-success);
+}
+
+.vault-ai-connection-status.disconnected {
+  border-left: 3px solid var(--text-error);
+}
+
+.server-name {
+  font-weight: 500;
+}
+
+.vault-ai-test-connection {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--background-modifier-border);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.vault-ai-test-connection:hover {
+  background: var(--background-modifier-hover);
+}
