@@ -535,104 +535,349 @@
 }
 
 /* ============================================================================
-   Diff Modal
+   Enhanced Diff Modal (VS Code-like)
    ============================================================================ */
 
 .vault-ai-diff-modal {
-  max-width: 800px;
+  width: 90vw;
+  max-width: 1200px;
 }
 
-.vault-ai-diff-modal h2 {
-  margin: 0 0 16px 0;
+.vault-ai-diff-modal .modal-content {
+  padding: 0;
 }
 
+/* Header with title and stats */
+.vault-ai-diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.vault-ai-diff-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.vault-ai-diff-stats {
+  display: flex;
+  gap: 12px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vault-ai-diff-stats .stat-added {
+  color: #3fb950;
+}
+
+.vault-ai-diff-stats .stat-removed {
+  color: #f85149;
+}
+
+.vault-ai-diff-stats .stat-modified {
+  color: #d29922;
+}
+
+/* View toggle */
+.vault-ai-diff-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 12px 20px;
+  background: var(--background-primary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-diff-toggle button {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vault-ai-diff-toggle button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.vault-ai-diff-toggle button.active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* Diff container */
 .vault-ai-diff-container {
   display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
-  max-height: 400px;
-  overflow: auto;
+  gap: 0;
+  max-height: 500px;
+  overflow: hidden;
+}
+
+.vault-ai-diff-container.side-by-side {
+  flex-direction: row;
 }
 
 .vault-ai-diff-container.unified {
   flex-direction: column;
 }
 
-.vault-ai-diff-column {
+/* Diff panels */
+.vault-ai-diff-panel {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--background-modifier-border);
 }
 
-.vault-ai-diff-column h4 {
-  margin: 0 0 8px 0;
-  font-size: 13px;
+.vault-ai-diff-panel:last-child {
+  border-right: none;
+}
+
+.vault-ai-diff-panel.unified-panel {
+  flex: 1;
+}
+
+.vault-ai-diff-panel .panel-header {
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--text-muted);
+}
+
+.vault-ai-diff-panel .panel-title {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .vault-ai-diff-content {
+  flex: 1;
+  overflow: auto;
   font-family: var(--font-monospace);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--background-primary);
+}
+
+/* Diff lines */
+.vault-ai-diff-line {
+  display: flex;
+  align-items: stretch;
+  min-height: 22px;
+  border-bottom: 1px solid transparent;
+}
+
+.vault-ai-diff-line .line-prefix {
+  width: 20px;
+  text-align: center;
+  color: var(--text-muted);
   background: var(--background-secondary);
-  border-radius: 4px;
-  padding: 8px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.vault-ai-diff-line .line-number {
+  min-width: 40px;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--text-faint);
+  background: var(--background-secondary);
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.vault-ai-diff-line .line-content {
+  flex: 1;
+  padding: 0 12px;
+  white-space: pre;
   overflow-x: auto;
 }
 
-.vault-ai-diff-line {
-  display: flex;
-  white-space: pre;
+/* Unchanged lines */
+.vault-ai-diff-line.unchanged {
+  background: var(--background-primary);
 }
 
-.line-number {
-  min-width: 30px;
-  color: var(--text-muted);
-  text-align: right;
-  padding-right: 8px;
-  user-select: none;
+.vault-ai-diff-line.unchanged .line-content {
+  color: var(--text-normal);
 }
 
-.line-content {
-  flex: 1;
+/* Empty placeholder lines */
+.vault-ai-diff-line.empty {
+  background: var(--background-secondary);
+  opacity: 0.5;
 }
 
-.line-content.removed {
-  background: rgba(255, 0, 0, 0.1);
+/* Removed lines (red) */
+.vault-ai-diff-line.removed {
+  background: rgba(248, 81, 73, 0.1);
 }
 
-.line-content.added {
-  background: rgba(0, 255, 0, 0.1);
+.vault-ai-diff-line.removed .line-prefix {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.2);
 }
 
-.vault-ai-diff-toggle {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+.vault-ai-diff-line.removed .line-number {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
 }
 
-.vault-ai-diff-toggle button {
-  padding: 4px 12px;
-  font-size: 12px;
-  background: var(--background-modifier-border);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+.vault-ai-diff-line.removed .line-content {
+  color: var(--text-normal);
 }
 
-.vault-ai-diff-toggle button.active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+/* Added lines (green) */
+.vault-ai-diff-line.added {
+  background: rgba(63, 185, 80, 0.1);
 }
 
+.vault-ai-diff-line.added .line-prefix {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.2);
+}
+
+.vault-ai-diff-line.added .line-number {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.vault-ai-diff-line.added .line-content {
+  color: var(--text-normal);
+}
+
+/* Modified lines (yellow/orange background) */
+.vault-ai-diff-line.modified {
+  background: rgba(210, 153, 34, 0.08);
+}
+
+.vault-ai-diff-line.modified.removed {
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.vault-ai-diff-line.modified.added {
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.vault-ai-diff-line.modified .line-number {
+  background: rgba(210, 153, 34, 0.15);
+}
+
+/* Character-level highlighting */
+.char-removed {
+  background: rgba(248, 81, 73, 0.4);
+  border-radius: 2px;
+  text-decoration: line-through;
+  text-decoration-color: rgba(248, 81, 73, 0.6);
+}
+
+.char-added {
+  background: rgba(63, 185, 80, 0.4);
+  border-radius: 2px;
+}
+
+/* Inline view character highlights */
+.char-removed.inline {
+  background: rgba(248, 81, 73, 0.3);
+  text-decoration: line-through;
+  text-decoration-color: #f85149;
+  color: #f85149;
+}
+
+.char-added.inline {
+  background: rgba(63, 185, 80, 0.3);
+  color: #3fb950;
+  font-weight: 500;
+}
+
+/* Inline modified line */
+.vault-ai-diff-line.modified.inline {
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.vault-ai-diff-line.modified.inline .line-prefix {
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.2);
+}
+
+/* Action buttons */
 .vault-ai-diff-buttons {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 .vault-ai-diff-buttons button {
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
   cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vault-ai-diff-buttons button:not(.mod-cta) {
+  background: var(--background-modifier-border);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.vault-ai-diff-buttons button:not(.mod-cta):hover {
+  background: var(--background-modifier-hover);
+}
+
+.vault-ai-diff-buttons button.mod-cta {
+  background: var(--interactive-accent);
+  border: 1px solid var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.vault-ai-diff-buttons button.mod-cta:hover {
+  filter: brightness(1.1);
+}
+
+/* Scrollbar styling for diff content */
+.vault-ai-diff-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.vault-ai-diff-content::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+}
+
+.vault-ai-diff-content::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+.vault-ai-diff-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* Dark theme adjustments */
+.theme-dark .char-removed {
+  background: rgba(248, 81, 73, 0.35);
+}
+
+.theme-dark .char-added {
+  background: rgba(63, 185, 80, 0.35);
 }
 
 /* ============================================================================
