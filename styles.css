@@ -627,6 +627,12 @@
   flex-direction: row;
 }
 
+.vault-ai-diff-container.side-by-side .vault-ai-diff-panel {
+  width: 50%;
+  max-width: 50%;
+  flex: 0 0 50%;
+}
+
 .vault-ai-diff-container.unified {
   flex-direction: column;
 }
