@@ -3,6 +3,7 @@ name: Build Plugin
 on:
   push:
     branches: ['*']
+    tags: ['*']
   pull_request:
     branches: [main]
 
@@ -34,3 +35,13 @@ jobs:
             manifest.json
             styles.css
           retention-days: 30
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            main.js
+            manifest.json
+            styles.css
+          generate_release_notes: true
