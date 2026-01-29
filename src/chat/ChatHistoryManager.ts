@@ -100,6 +100,20 @@ export class ChatHistoryManager {
     await this.save();
   }
 
+  async updateLMStudioResponseId(conversationId: string, responseId: string): Promise<void> {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return;
+
+    conversation.lmStudioResponseId = responseId;
+    conversation.updatedAt = Date.now();
+    await this.save();
+  }
+
+  getLMStudioResponseId(conversationId: string): string | undefined {
+    const conversation = this.getConversation(conversationId);
+    return conversation?.lmStudioResponseId;
+  }
+
   async deleteConversation(id: string): Promise<void> {
     const index = this.history.conversations.findIndex((c) => c.id === id);
     if (index === -1) return;
