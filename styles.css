@@ -138,6 +138,42 @@
   color: var(--text-normal);
 }
 
+/* Controls container for scope and model selectors */
+.vault-ai-controls-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.vault-ai-controls-container .vault-ai-scope-container {
+  margin-bottom: 0;
+}
+
+/* Model selector */
+.vault-ai-model-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.vault-ai-model-dropdown {
+  flex: 1;
+  min-width: 120px;
+  max-width: 200px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.vault-ai-model-dropdown:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
 .vault-ai-messages {
   flex: 1;
   overflow-y: auto;

@@ -15,6 +15,7 @@ export default class VaultAIPlugin extends Plugin {
   undoStack: UndoStack = new UndoStack();
   connectionStatus: ConnectionStatus = 'offline';
   chatHistory: ChatHistoryManager = null!;
+  availableModels: string[] = [];
 
   private statusBarItem: HTMLElement | null = null;
 
@@ -145,9 +146,46 @@ export default class VaultAIPlugin extends Plugin {
     try {
       const connected = await this.llmClient.isConnected();
       this.setConnectionStatus(connected ? 'ready' : 'offline');
+
+      // If connected, load available models and auto-select first if none selected
+      if (connected) {
+        await this.loadAvailableModels();
+      }
     } catch {
       this.setConnectionStatus('offline');
     }
+  }
+
+  async loadAvailableModels(): Promise<string[]> {
+    if (!this.llmClient) {
+      this.availableModels = [];
+      return [];
+    }
+
+    try {
+      this.availableModels = await this.llmClient.listModels();
+
+      // Auto-select first model if none is selected
+      if (!this.settings.selectedModel && this.availableModels.length > 0) {
+        this.settings.selectedModel = this.availableModels[0];
+        this.llmClient.setModel(this.availableModels[0]);
+        await this.saveData(this.settings);
+      }
+
+      return this.availableModels;
+    } catch (error) {
+      console.error('[Vault AI] Error loading models:', error);
+      this.availableModels = [];
+      return [];
+    }
+  }
+
+  async setSelectedModel(model: string): Promise<void> {
+    this.settings.selectedModel = model;
+    if (this.llmClient) {
+      this.llmClient.setModel(model);
+    }
+    await this.saveSettings();
   }
 
   setConnectionStatus(status: ConnectionStatus): void {

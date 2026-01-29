@@ -12,6 +12,7 @@ export class ChatTab {
   private messagesEl: HTMLElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
   private scopeDropdown: HTMLSelectElement | null = null;
+  private modelDropdown: HTMLSelectElement | null = null;
   private isProcessing = false;
   private currentConversationId: string | null = null;
 
@@ -142,8 +143,11 @@ export class ChatTab {
   }
 
   private renderChatArea(chatArea: HTMLElement): void {
+    // Controls container for scope and model selectors
+    const controlsContainer = chatArea.createDiv('vault-ai-controls-container');
+
     // Context scope selector
-    const scopeContainer = chatArea.createDiv('vault-ai-scope-container');
+    const scopeContainer = controlsContainer.createDiv('vault-ai-scope-container');
     scopeContainer.createSpan({ text: 'Context: ' });
 
     this.scopeDropdown = scopeContainer.createEl('select', {
@@ -174,6 +178,23 @@ export class ChatTab {
           this.currentConversationId,
           scope
         );
+      }
+    });
+
+    // Model selector
+    const modelContainer = controlsContainer.createDiv('vault-ai-model-container');
+    modelContainer.createSpan({ text: 'Model: ' });
+
+    this.modelDropdown = modelContainer.createEl('select', {
+      cls: 'vault-ai-model-dropdown',
+    });
+
+    this.populateModelDropdown();
+
+    this.modelDropdown.addEventListener('change', async () => {
+      const model = this.modelDropdown?.value;
+      if (model) {
+        await this.plugin.setSelectedModel(model);
       }
     });
 
@@ -453,6 +474,46 @@ export class ChatTab {
 
   focusInput(): void {
     this.inputEl?.focus();
+  }
+
+  async populateModelDropdown(): Promise<void> {
+    if (!this.modelDropdown) return;
+
+    this.modelDropdown.empty();
+
+    // Use cached models if available, otherwise fetch
+    let models = this.plugin.availableModels;
+    if (models.length === 0) {
+      this.modelDropdown.createEl('option', {
+        text: 'Loading...',
+        value: '',
+      });
+
+      models = await this.plugin.loadAvailableModels();
+      this.modelDropdown.empty();
+    }
+
+    if (models.length === 0) {
+      this.modelDropdown.createEl('option', {
+        text: 'No models available',
+        value: '',
+      });
+      return;
+    }
+
+    for (const model of models) {
+      const option = this.modelDropdown.createEl('option', {
+        text: model,
+        value: model,
+      });
+      if (model === this.plugin.settings.selectedModel) {
+        option.selected = true;
+      }
+    }
+  }
+
+  refreshModelDropdown(): void {
+    this.populateModelDropdown();
   }
 
   private formatDate(timestamp: number): string {
