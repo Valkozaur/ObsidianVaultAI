@@ -1,9 +1,7 @@
 import { LLMClient } from './LLMClient';
 import {
   LLMMessage,
-  LMStudioChatRequest,
   LMStudioNewChatResponse,
-  LMStudioStreamEvent,
   LMStudioStreamCallbacks,
 } from '../types';
 
@@ -69,8 +67,8 @@ export class LMStudioClient extends LLMClient {
   }
 
   /**
-   * New chat method using /api/v1/chat endpoint
-   * Supports streaming, reasoning, and response_id for conversation continuity
+   * New chat method using /v1/chat/completions endpoint (OpenAI-compatible)
+   * Supports streaming via SSE
    */
   async chatV1(
     input: string,
@@ -82,31 +80,29 @@ export class LMStudioClient extends LLMClient {
 
     const {
       systemPrompt,
-      previousResponseId,
       temperature = 0.7,
-      store = true,
       callbacks,
     } = options;
 
-    const requestBody: LMStudioChatRequest = {
-      model: this.model,
-      input,
-      stream: !!callbacks,
-      temperature,
-      store,
-    };
+    // Build messages array in OpenAI format
+    const messages: Array<{ role: string; content: string }> = [];
 
     if (systemPrompt) {
-      requestBody.system_prompt = systemPrompt;
+      messages.push({ role: 'system', content: systemPrompt });
     }
 
-    if (previousResponseId) {
-      requestBody.previous_response_id = previousResponseId;
-    }
+    messages.push({ role: 'user', content: input });
+
+    const requestBody = {
+      model: this.model,
+      messages,
+      stream: !!callbacks,
+      temperature,
+    };
 
     console.log('[Vault AI] LMStudio chatV1 request:', {
       ...requestBody,
-      input: input.slice(0, 100) + '...',
+      messages: messages.map(m => ({ role: m.role, content: m.content.slice(0, 100) + '...' })),
     });
 
     if (callbacks) {
@@ -117,34 +113,30 @@ export class LMStudioClient extends LLMClient {
   }
 
   /**
-   * Non-streaming chat using the new API
+   * Non-streaming chat using OpenAI-compatible API
    */
   private async chatV1NonStreaming(
-    requestBody: LMStudioChatRequest
+    requestBody: { model: string; messages: Array<{ role: string; content: string }>; stream: boolean; temperature: number }
   ): Promise<LMStudioChatResult> {
     try {
-      const response: LMStudioNewChatResponse = await this.request(
-        `${this.baseUrl}/api/v1/chat`,
+      const response = await this.request(
+        `${this.baseUrl}/v1/chat/completions`,
         'POST',
         requestBody
       );
 
-      let content = '';
-      let reasoning = '';
-
-      for (const item of response.output) {
-        if (item.type === 'message' && item.content) {
-          content += item.content;
-        } else if (item.type === 'reasoning' && item.content) {
-          reasoning += item.content;
-        }
-      }
+      const content = response.choices?.[0]?.message?.content || '';
 
       return {
         content,
-        reasoning: reasoning || undefined,
-        responseId: response.response_id,
-        stats: response.stats,
+        reasoning: undefined,
+        responseId: response.id,
+        stats: response.usage ? {
+          tokens_input: response.usage.prompt_tokens,
+          tokens_output: response.usage.completion_tokens,
+          time_to_first_token_ms: 0,
+          tokens_per_second: 0,
+        } : undefined,
       };
     } catch (error) {
       console.error('LM Studio chatV1 error:', error);
@@ -153,13 +145,13 @@ export class LMStudioClient extends LLMClient {
   }
 
   /**
-   * Streaming chat using Server-Sent Events
+   * Streaming chat using Server-Sent Events (OpenAI-compatible format)
    */
   private async chatV1Streaming(
-    requestBody: LMStudioChatRequest,
+    requestBody: { model: string; messages: Array<{ role: string; content: string }>; stream: boolean; temperature: number },
     callbacks: LMStudioStreamCallbacks
   ): Promise<LMStudioChatResult> {
-    const url = `${this.baseUrl}/api/v1/chat`;
+    const url = `${this.baseUrl}/v1/chat/completions`;
 
     console.log('[Vault AI] Starting streaming request to:', url);
 
@@ -185,10 +177,10 @@ export class LMStudioClient extends LLMClient {
       const decoder = new TextDecoder();
 
       let content = '';
-      let reasoning = '';
       let responseId: string | undefined;
-      let stats: LMStudioNewChatResponse['stats'] | undefined;
       let buffer = '';
+
+      callbacks.onMessageStart?.();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -199,48 +191,55 @@ export class LMStudioClient extends LLMClient {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete SSE events from buffer
+        // Process complete SSE events from buffer (OpenAI format: "data: {...}")
         const lines = buffer.split('\n');
         buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
-        let eventType: string | null = null;
-        let eventData: string | null = null;
-
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            eventData = line.slice(6);
+          const trimmedLine = line.trim();
 
-            if (eventType && eventData) {
-              try {
-                const event: LMStudioStreamEvent = JSON.parse(eventData);
-                this.handleStreamEvent(event, callbacks, {
-                  addContent: (c) => (content += c),
-                  addReasoning: (r) => (reasoning += r),
-                  setResponseId: (id) => (responseId = id),
-                  setStats: (s) => (stats = s),
-                });
-              } catch (e) {
-                console.warn('[Vault AI] Failed to parse SSE event:', eventData, e);
-              }
+          if (!trimmedLine || !trimmedLine.startsWith('data: ')) {
+            continue;
+          }
+
+          const data = trimmedLine.slice(6); // Remove "data: " prefix
+
+          if (data === '[DONE]') {
+            // Stream complete
+            callbacks.onMessageEnd?.();
+            callbacks.onChatEnd?.({
+              response_id: responseId || '',
+              model_instance_id: '',
+              output: [{ type: 'message', content }],
+            });
+            continue;
+          }
+
+          try {
+            const chunk = JSON.parse(data);
+
+            // Store response ID from first chunk
+            if (chunk.id && !responseId) {
+              responseId = chunk.id;
             }
 
-            eventType = null;
-            eventData = null;
-          } else if (line === '') {
-            // Empty line marks end of an event
-            eventType = null;
-            eventData = null;
+            // Extract content delta
+            const deltaContent = chunk.choices?.[0]?.delta?.content;
+            if (deltaContent) {
+              content += deltaContent;
+              callbacks.onMessageDelta?.(deltaContent);
+            }
+          } catch (e) {
+            console.warn('[Vault AI] Failed to parse SSE chunk:', data, e);
           }
         }
       }
 
       return {
         content,
-        reasoning: reasoning || undefined,
+        reasoning: undefined,
         responseId,
-        stats,
+        stats: undefined,
       };
     } catch (error) {
       console.error('LM Studio streaming error:', error);
@@ -249,82 +248,6 @@ export class LMStudioClient extends LLMClient {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
       throw error;
-    }
-  }
-
-  /**
-   * Handle individual stream events
-   */
-  private handleStreamEvent(
-    event: LMStudioStreamEvent,
-    callbacks: LMStudioStreamCallbacks,
-    state: {
-      addContent: (c: string) => void;
-      addReasoning: (r: string) => void;
-      setResponseId: (id: string) => void;
-      setStats: (s: LMStudioNewChatResponse['stats']) => void;
-    }
-  ): void {
-    switch (event.type) {
-      case 'message.start':
-        callbacks.onMessageStart?.();
-        break;
-
-      case 'message.delta':
-        if (event.content) {
-          state.addContent(event.content);
-          callbacks.onMessageDelta?.(event.content);
-        }
-        break;
-
-      case 'message.end':
-        callbacks.onMessageEnd?.();
-        break;
-
-      case 'reasoning.start':
-        callbacks.onReasoningStart?.();
-        break;
-
-      case 'reasoning.delta':
-        if (event.content) {
-          state.addReasoning(event.content);
-          callbacks.onReasoningDelta?.(event.content);
-        }
-        break;
-
-      case 'reasoning.end':
-        callbacks.onReasoningEnd?.();
-        break;
-
-      case 'model_load.progress':
-        if (event.progress !== undefined) {
-          callbacks.onModelLoadProgress?.(event.progress);
-        }
-        break;
-
-      case 'prompt_processing.progress':
-        if (event.progress !== undefined) {
-          callbacks.onPromptProcessingProgress?.(event.progress);
-        }
-        break;
-
-      case 'error':
-        if (event.error) {
-          callbacks.onError?.(event.error);
-        }
-        break;
-
-      case 'chat.end':
-        if (event.result) {
-          if (event.result.response_id) {
-            state.setResponseId(event.result.response_id);
-          }
-          if (event.result.stats) {
-            state.setStats(event.result.stats);
-          }
-          callbacks.onChatEnd?.(event.result);
-        }
-        break;
     }
   }
 
