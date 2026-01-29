@@ -126,6 +126,33 @@ export class VaultAISettingTab extends PluginSettingTab {
           })
       );
 
+    // Agent Mode Section
+    containerEl.createEl('h3', { text: 'Agent Capabilities' });
+
+    // Enable Agent Mode
+    new Setting(containerEl)
+      .setName('Enable Agent Mode')
+      .setDesc('Allow the AI to perform actions like creating notes, modifying files, etc. When disabled, the AI can only search and read your vault.')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.enableAgentMode)
+          .onChange(async (value) => {
+            this.plugin.settings.enableAgentMode = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    const agentInfo = containerEl.createDiv('vault-ai-agent-info');
+    agentInfo.createEl('p', {
+      text: 'With Agent Mode enabled, you can ask the AI to:',
+      cls: 'vault-ai-info-header',
+    });
+    const featureList = agentInfo.createEl('ul');
+    featureList.createEl('li', { text: 'Create new notes in specific folders' });
+    featureList.createEl('li', { text: 'Append content to existing notes' });
+    featureList.createEl('li', { text: 'Search and read notes' });
+    featureList.createEl('li', { text: 'List folder contents' });
+
     // Connection Status
     containerEl.createEl('h3', { text: 'Connection Status' });
 
