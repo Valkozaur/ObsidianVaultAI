@@ -361,8 +361,6 @@ export interface LMStudioStreamCallbacks {
 // UI
 // ============================================================================
 
-export type TabType = 'chat' | 'format' | 'structure';
-
-export interface TabState {
-  activeTab: TabType;
-}
+// Note: Format and Structure tabs have been integrated as agent tools
+// TabType kept for backward compatibility but only 'chat' is used
+export type TabType = 'chat';
