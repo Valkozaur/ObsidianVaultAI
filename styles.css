@@ -213,6 +213,72 @@
   margin-right: 24px;
 }
 
+/* Message Header with Copy Button */
+.vault-ai-message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-message-user .vault-ai-message-header {
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+
+.vault-ai-message-role {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.vault-ai-message-user .vault-ai-message-role {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.vault-ai-message-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.vault-ai-message:hover .vault-ai-message-actions {
+  opacity: 1;
+}
+
+.vault-ai-copy-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+
+.vault-ai-copy-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.vault-ai-message-user .vault-ai-copy-btn {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.vault-ai-message-user .vault-ai-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .vault-ai-message-content {
   font-size: 14px;
   line-height: 1.5;
