@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, TFile, setIcon, Menu } from 'obsidian';
+import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
@@ -277,6 +277,32 @@ export class ChatWindowView extends ItemView {
       `vault-ai-message vault-ai-message-${message.role}`
     );
 
+    // Add message header with copy button
+    const headerEl = messageEl.createDiv('vault-ai-message-header');
+
+    const roleLabel = headerEl.createSpan('vault-ai-message-role');
+    roleLabel.setText(message.role === 'user' ? 'You' : 'AI');
+
+    const actionsEl = headerEl.createDiv('vault-ai-message-actions');
+
+    const copyBtn = actionsEl.createEl('button', {
+      cls: 'vault-ai-copy-btn clickable-icon',
+      attr: { 'aria-label': 'Copy message' },
+    });
+    setIcon(copyBtn, 'copy');
+    setTooltip(copyBtn, 'Copy message');
+
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.copyMessageToClipboard(message.content);
+    });
+
+    // Add context menu for right-click
+    messageEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.showMessageContextMenu(e, message);
+    });
+
     // Render reasoning/thinking first (if present and enabled)
     if (
       this.plugin.settings.showThinkingProcess &&
@@ -408,6 +434,66 @@ export class ChatWindowView extends ItemView {
         });
       }
     }
+  }
+
+  private copyMessageToClipboard(content: string): void {
+    navigator.clipboard.writeText(content).then(() => {
+      new Notice('Message copied to clipboard');
+    }).catch((err) => {
+      console.error('Failed to copy message:', err);
+      new Notice('Failed to copy message');
+    });
+  }
+
+  private showMessageContextMenu(e: MouseEvent, message: ChatMessage): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item.setTitle('Copy message');
+      item.setIcon('copy');
+      item.onClick(() => {
+        this.copyMessageToClipboard(message.content);
+      });
+    });
+
+    if (message.reasoning) {
+      menu.addItem((item) => {
+        item.setTitle('Copy thinking');
+        item.setIcon('brain');
+        item.onClick(() => {
+          this.copyMessageToClipboard(message.reasoning!);
+        });
+      });
+    }
+
+    if (message.sources && message.sources.length > 0) {
+      menu.addItem((item) => {
+        item.setTitle('Copy sources');
+        item.setIcon('link');
+        item.onClick(() => {
+          this.copyMessageToClipboard(message.sources!.join('\n'));
+        });
+      });
+    }
+
+    menu.addSeparator();
+
+    menu.addItem((item) => {
+      item.setTitle('Copy all (with metadata)');
+      item.setIcon('file-text');
+      item.onClick(() => {
+        let fullContent = message.content;
+        if (message.reasoning) {
+          fullContent = `## Thinking\n${message.reasoning}\n\n## Response\n${fullContent}`;
+        }
+        if (message.sources && message.sources.length > 0) {
+          fullContent += `\n\n## Sources\n${message.sources.map(s => `- ${s}`).join('\n')}`;
+        }
+        this.copyMessageToClipboard(fullContent);
+      });
+    });
+
+    menu.showAtMouseEvent(e);
   }
 
   // Streaming message helpers

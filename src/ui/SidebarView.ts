@@ -1,22 +1,15 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import type VaultAIPlugin from '../main';
-import { TabType, ContextScope } from '../types';
+import { ContextScope } from '../types';
 import { ChatTab } from './ChatTab';
-import { FormatTab } from './FormatTab';
-import { StructureTab } from './StructureTab';
 
 export const VIEW_TYPE_VAULT_AI = 'vault-ai-view';
 
 export class VaultAIView extends ItemView {
   plugin: VaultAIPlugin;
-  private activeTab: TabType = 'chat';
-  private tabContentEl: HTMLElement | null = null;
+  private contentEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
-  private tabButtons: Map<TabType, HTMLElement> = new Map();
-
   private chatTab: ChatTab | null = null;
-  private formatTab: FormatTab | null = null;
-  private structureTab: StructureTab | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: VaultAIPlugin) {
     super(leaf);
@@ -46,68 +39,16 @@ export class VaultAIView extends ItemView {
     this.statusEl = header.createSpan('vault-ai-status');
     this.updateConnectionStatus();
 
-    // Tab bar
-    const tabBar = container.createDiv('vault-ai-tab-bar');
-    this.createTabButton(tabBar, 'chat', 'Chat');
-    this.createTabButton(tabBar, 'format', 'Format');
-    this.createTabButton(tabBar, 'structure', 'Structure');
+    // Content area
+    this.contentEl = container.createDiv('vault-ai-tab-content');
 
-    // Tab content area
-    this.tabContentEl = container.createDiv('vault-ai-tab-content');
-
-    // Initialize tabs
+    // Initialize and render chat
     this.chatTab = new ChatTab(this.plugin, this);
-    this.formatTab = new FormatTab(this.plugin, this);
-    this.structureTab = new StructureTab(this.plugin, this);
-
-    // Render initial tab
-    this.renderActiveTab();
+    this.chatTab.render(this.contentEl);
   }
 
   async onClose(): Promise<void> {
     // Cleanup
-  }
-
-  private createTabButton(parent: HTMLElement, tab: TabType, label: string): void {
-    const button = parent.createEl('button', {
-      text: label,
-      cls: `vault-ai-tab-button ${this.activeTab === tab ? 'active' : ''}`,
-    });
-
-    button.addEventListener('click', () => {
-      this.switchTab(tab);
-    });
-
-    this.tabButtons.set(tab, button);
-  }
-
-  switchTab(tab: TabType): void {
-    if (this.activeTab === tab) return;
-
-    // Update button states
-    this.tabButtons.get(this.activeTab)?.removeClass('active');
-    this.tabButtons.get(tab)?.addClass('active');
-
-    this.activeTab = tab;
-    this.renderActiveTab();
-  }
-
-  private renderActiveTab(): void {
-    if (!this.tabContentEl) return;
-
-    this.tabContentEl.empty();
-
-    switch (this.activeTab) {
-      case 'chat':
-        this.chatTab?.render(this.tabContentEl);
-        break;
-      case 'format':
-        this.formatTab?.render(this.tabContentEl);
-        break;
-      case 'structure':
-        this.structureTab?.render(this.tabContentEl);
-        break;
-    }
   }
 
   updateConnectionStatus(): void {
