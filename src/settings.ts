@@ -126,6 +126,95 @@ export class VaultAISettingTab extends PluginSettingTab {
           })
       );
 
+    // LM Studio-specific settings (shown only when LM Studio is selected)
+    if (this.plugin.settings.serverType === 'lmstudio') {
+      containerEl.createEl('h3', { text: 'LM Studio Settings' });
+
+      // Context Length
+      new Setting(containerEl)
+        .setName('Context Length')
+        .setDesc('Number of tokens to use as context. Higher values recommended for MCP tool usage (2000-32000).')
+        .addText((text) =>
+          text
+            .setPlaceholder('8000')
+            .setValue(String(this.plugin.settings.lmStudioContextLength))
+            .onChange(async (value) => {
+              const num = parseInt(value);
+              if (!isNaN(num) && num >= 1000 && num <= 128000) {
+                this.plugin.settings.lmStudioContextLength = num;
+                await this.plugin.saveSettings();
+              }
+            })
+        );
+
+      // Reasoning Level
+      new Setting(containerEl)
+        .setName('Reasoning Level')
+        .setDesc('Control the model\'s reasoning/thinking depth. "Auto" uses the model\'s default.')
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption('auto', 'Auto (model default)')
+            .addOption('off', 'Off')
+            .addOption('low', 'Low')
+            .addOption('medium', 'Medium')
+            .addOption('high', 'High')
+            .addOption('on', 'On (maximum)')
+            .setValue(this.plugin.settings.lmStudioReasoning)
+            .onChange(async (value: 'off' | 'low' | 'medium' | 'high' | 'on' | 'auto') => {
+              this.plugin.settings.lmStudioReasoning = value;
+              await this.plugin.saveSettings();
+            })
+        );
+
+      // MCP Integration Section
+      containerEl.createEl('h4', { text: 'MCP Integrations' });
+
+      const mcpInfo = containerEl.createDiv('vault-ai-mcp-info');
+      mcpInfo.createEl('p', {
+        text: 'Configure MCP (Model Context Protocol) servers for tool capabilities. Tools will be executed by LM Studio.',
+        cls: 'vault-ai-info-text setting-item-description',
+      });
+
+      // LM Studio Plugins
+      new Setting(containerEl)
+        .setName('LM Studio MCP Plugins')
+        .setDesc('Comma-separated list of MCP plugin IDs installed in LM Studio (e.g., "mcp/playwright, mcp/filesystem")')
+        .addText((text) =>
+          text
+            .setPlaceholder('mcp/plugin-name')
+            .setValue(this.plugin.settings.mcpPlugins.join(', '))
+            .onChange(async (value) => {
+              this.plugin.settings.mcpPlugins = value
+                .split(',')
+                .map(s => s.trim())
+                .filter(s => s.length > 0);
+              await this.plugin.saveSettings();
+            })
+        );
+
+      // External MCP Servers
+      new Setting(containerEl)
+        .setName('External MCP Servers')
+        .setDesc('Add external MCP servers (e.g., Hugging Face MCP)');
+
+      const mcpContainer = containerEl.createDiv('vault-ai-mcp-servers');
+      this.renderMCPServerList(mcpContainer);
+
+      new Setting(containerEl)
+        .addButton((button) =>
+          button
+            .setButtonText('Add MCP Server')
+            .onClick(async () => {
+              this.plugin.settings.mcpServers.push({
+                label: 'new-server',
+                url: 'https://example.com/mcp',
+              });
+              await this.plugin.saveSettings();
+              this.renderMCPServerList(mcpContainer);
+            })
+        );
+    }
+
     // Agent Mode Section
     containerEl.createEl('h3', { text: 'Agent Capabilities' });
 
@@ -152,6 +241,102 @@ export class VaultAISettingTab extends PluginSettingTab {
     featureList.createEl('li', { text: 'Append content to existing notes' });
     featureList.createEl('li', { text: 'Search and read notes' });
     featureList.createEl('li', { text: 'List folder contents' });
+
+    // Built-in MCP Server Section
+    containerEl.createEl('h3', { text: 'Built-in MCP Server' });
+
+    const mcpServerInfo = containerEl.createDiv('vault-ai-mcp-server-info');
+    mcpServerInfo.createEl('p', {
+      text: 'The built-in MCP server exposes Obsidian vault tools (search, read, create notes) to LMStudio. This enables native tool calling without external MCP servers.',
+      cls: 'vault-ai-info-text setting-item-description',
+    });
+
+    // Enable MCP Server
+    new Setting(containerEl)
+      .setName('Enable Built-in MCP Server')
+      .setDesc('Run a local MCP server that exposes vault tools to LMStudio')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.mcpServerEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.mcpServerEnabled = value;
+            await this.plugin.saveSettings();
+            // Restart MCP server if needed
+            if (value) {
+              await this.plugin.startMCPServer();
+            } else {
+              await this.plugin.stopMCPServer();
+            }
+          })
+      );
+
+    // MCP Server Port
+    new Setting(containerEl)
+      .setName('MCP Server Port')
+      .setDesc('Port for the built-in MCP server (requires restart to take effect)')
+      .addText((text) =>
+        text
+          .setPlaceholder('3456')
+          .setValue(String(this.plugin.settings.mcpServerPort))
+          .onChange(async (value) => {
+            const num = parseInt(value);
+            if (!isNaN(num) && num >= 1024 && num <= 65535) {
+              this.plugin.settings.mcpServerPort = num;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
+
+    // System Instructions Section
+    containerEl.createEl('h3', { text: 'System Instructions' });
+
+    const instructionsInfo = containerEl.createDiv('vault-ai-instructions-info');
+    instructionsInfo.createEl('p', {
+      text: 'Load custom system instructions from a file in your vault (e.g., Agent.md). These instructions are appended to the default system prompt.',
+      cls: 'vault-ai-info-text setting-item-description',
+    });
+
+    // Enable System Instructions
+    new Setting(containerEl)
+      .setName('Use Custom System Instructions')
+      .setDesc('Load additional system instructions from a file in your vault')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.useSystemInstructions)
+          .onChange(async (value) => {
+            this.plugin.settings.useSystemInstructions = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // System Instructions File Path
+    new Setting(containerEl)
+      .setName('System Instructions File')
+      .setDesc('Path to a markdown file containing custom system instructions (e.g., "Agent.md" or "System/Prompt.md")')
+      .addText((text) =>
+        text
+          .setPlaceholder('Agent.md')
+          .setValue(this.plugin.settings.systemInstructionsPath)
+          .onChange(async (value) => {
+            this.plugin.settings.systemInstructionsPath = value;
+            await this.plugin.saveSettings();
+          })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText('Create Default')
+          .setTooltip('Create a default instructions file if it doesn\'t exist')
+          .onClick(async () => {
+            const { SystemInstructionsLoader } = await import('./prompts/SystemInstructionsLoader');
+            const loader = new SystemInstructionsLoader(this.app);
+            const created = await loader.createDefaultIfNotExists(this.plugin.settings.systemInstructionsPath);
+            if (created) {
+              new Notice(`Created ${this.plugin.settings.systemInstructionsPath}`);
+            } else {
+              new Notice('File already exists');
+            }
+          })
+      );
 
     // Connection Status
     containerEl.createEl('h3', { text: 'Connection Status' });
@@ -202,6 +387,54 @@ export class VaultAISettingTab extends PluginSettingTab {
       dropdown.empty();
       dropdown.createEl('option', { text: 'Error loading models', value: '' });
       new Notice(`Failed to load models: ${error}`);
+    }
+  }
+
+  private renderMCPServerList(container: HTMLElement): void {
+    container.empty();
+
+    if (this.plugin.settings.mcpServers.length === 0) {
+      container.createEl('p', {
+        text: 'No external MCP servers configured.',
+        cls: 'vault-ai-mcp-empty',
+      });
+      return;
+    }
+
+    for (let i = 0; i < this.plugin.settings.mcpServers.length; i++) {
+      const server = this.plugin.settings.mcpServers[i];
+      const serverEl = container.createDiv('vault-ai-mcp-server-item');
+
+      new Setting(serverEl)
+        .setName(`Server ${i + 1}`)
+        .addText((text) =>
+          text
+            .setPlaceholder('Label')
+            .setValue(server.label)
+            .onChange(async (value) => {
+              this.plugin.settings.mcpServers[i].label = value;
+              await this.plugin.saveSettings();
+            })
+        )
+        .addText((text) =>
+          text
+            .setPlaceholder('URL')
+            .setValue(server.url)
+            .onChange(async (value) => {
+              this.plugin.settings.mcpServers[i].url = value;
+              await this.plugin.saveSettings();
+            })
+        )
+        .addButton((button) =>
+          button
+            .setIcon('trash')
+            .setTooltip('Remove server')
+            .onClick(async () => {
+              this.plugin.settings.mcpServers.splice(i, 1);
+              await this.plugin.saveSettings();
+              this.renderMCPServerList(container);
+            })
+        );
     }
   }
 

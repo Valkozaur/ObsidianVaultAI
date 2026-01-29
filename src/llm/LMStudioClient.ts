@@ -5,6 +5,9 @@ import {
   LMStudioNewChatResponse,
   LMStudioStreamEvent,
   LMStudioStreamCallbacks,
+  LMStudioIntegration,
+  LMStudioToolCallOutput,
+  LMStudioToolCallInfo,
 } from '../types';
 
 export interface LMStudioChatOptions {
@@ -13,6 +16,10 @@ export interface LMStudioChatOptions {
   temperature?: number;
   store?: boolean;
   callbacks?: LMStudioStreamCallbacks;
+  // New options for MCP and tools
+  integrations?: LMStudioIntegration[];
+  contextLength?: number;
+  reasoning?: 'off' | 'low' | 'medium' | 'high' | 'on';
 }
 
 export interface LMStudioChatResult {
@@ -20,6 +27,7 @@ export interface LMStudioChatResult {
   reasoning?: string;
   responseId?: string;
   stats?: LMStudioNewChatResponse['stats'];
+  toolCalls?: LMStudioToolCallOutput[];
 }
 
 export class LMStudioClient extends LLMClient {
@@ -86,6 +94,9 @@ export class LMStudioClient extends LLMClient {
       temperature = 0.7,
       store = true,
       callbacks,
+      integrations,
+      contextLength,
+      reasoning,
     } = options;
 
     const requestBody: LMStudioChatRequest = {
@@ -104,9 +115,24 @@ export class LMStudioClient extends LLMClient {
       requestBody.previous_response_id = previousResponseId;
     }
 
+    // Add MCP integrations if provided
+    if (integrations && integrations.length > 0) {
+      requestBody.integrations = integrations;
+    }
+
+    // Add context length for MCP usage
+    if (contextLength) {
+      requestBody.context_length = contextLength;
+    }
+
+    // Add reasoning setting
+    if (reasoning) {
+      requestBody.reasoning = reasoning;
+    }
+
     console.log('[Vault AI] LMStudio chatV1 request:', {
       ...requestBody,
-      input: input.slice(0, 100) + '...',
+      input: typeof input === 'string' ? input.slice(0, 100) + '...' : input,
     });
 
     if (callbacks) {
@@ -131,12 +157,15 @@ export class LMStudioClient extends LLMClient {
 
       let content = '';
       let reasoning = '';
+      const toolCalls: LMStudioToolCallOutput[] = [];
 
       for (const item of response.output) {
-        if (item.type === 'message' && item.content) {
+        if (item.type === 'message') {
           content += item.content;
-        } else if (item.type === 'reasoning' && item.content) {
+        } else if (item.type === 'reasoning') {
           reasoning += item.content;
+        } else if (item.type === 'tool_call') {
+          toolCalls.push(item);
         }
       }
 
@@ -145,6 +174,7 @@ export class LMStudioClient extends LLMClient {
         reasoning: reasoning || undefined,
         responseId: response.response_id,
         stats: response.stats,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
       console.error('LM Studio chatV1 error:', error);
@@ -188,6 +218,8 @@ export class LMStudioClient extends LLMClient {
       let reasoning = '';
       let responseId: string | undefined;
       let stats: LMStudioNewChatResponse['stats'] | undefined;
+      const toolCalls: LMStudioToolCallOutput[] = [];
+      let currentToolCall: Partial<LMStudioToolCallInfo> | null = null;
       let buffer = '';
 
       while (true) {
@@ -220,6 +252,9 @@ export class LMStudioClient extends LLMClient {
                   addReasoning: (r) => (reasoning += r),
                   setResponseId: (id) => (responseId = id),
                   setStats: (s) => (stats = s),
+                  addToolCall: (tc) => toolCalls.push(tc),
+                  setCurrentToolCall: (tc) => (currentToolCall = tc),
+                  getCurrentToolCall: () => currentToolCall,
                 });
               } catch (e) {
                 console.warn('[Vault AI] Failed to parse SSE event:', eventData, e);
@@ -241,6 +276,7 @@ export class LMStudioClient extends LLMClient {
         reasoning: reasoning || undefined,
         responseId,
         stats,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
       console.error('LM Studio streaming error:', error);
@@ -263,6 +299,9 @@ export class LMStudioClient extends LLMClient {
       addReasoning: (r: string) => void;
       setResponseId: (id: string) => void;
       setStats: (s: LMStudioNewChatResponse['stats']) => void;
+      addToolCall: (tc: LMStudioToolCallOutput) => void;
+      setCurrentToolCall: (tc: Partial<LMStudioToolCallInfo> | null) => void;
+      getCurrentToolCall: () => Partial<LMStudioToolCallInfo> | null;
     }
   ): void {
     switch (event.type) {
@@ -305,6 +344,64 @@ export class LMStudioClient extends LLMClient {
       case 'prompt_processing.progress':
         if (event.progress !== undefined) {
           callbacks.onPromptProcessingProgress?.(event.progress);
+        }
+        break;
+
+      // Tool call events
+      case 'tool_call.start':
+        if (event.tool) {
+          const toolInfo: LMStudioToolCallInfo = {
+            tool: event.tool,
+            arguments: event.arguments || {},
+            provider_info: event.provider_info,
+          };
+          state.setCurrentToolCall(toolInfo);
+          callbacks.onToolCallStart?.(toolInfo);
+        }
+        break;
+
+      case 'tool_call.arguments':
+        if (event.arguments) {
+          const current = state.getCurrentToolCall();
+          if (current) {
+            current.arguments = { ...current.arguments, ...event.arguments };
+          }
+          callbacks.onToolCallArguments?.(event.arguments);
+        }
+        break;
+
+      case 'tool_call.output':
+        if (event.output) {
+          callbacks.onToolCallOutput?.(event.output);
+        }
+        break;
+
+      case 'tool_call.success':
+        {
+          const current = state.getCurrentToolCall();
+          if (current && current.tool && event.output !== undefined) {
+            const toolCallOutput: LMStudioToolCallOutput = {
+              type: 'tool_call',
+              tool: current.tool,
+              arguments: current.arguments || {},
+              output: event.output,
+              provider_info: current.provider_info || { type: 'plugin' },
+            };
+            state.addToolCall(toolCallOutput);
+            callbacks.onToolCallSuccess?.(toolCallOutput);
+          }
+          state.setCurrentToolCall(null);
+        }
+        break;
+
+      case 'tool_call.failure':
+        {
+          const current = state.getCurrentToolCall();
+          callbacks.onToolCallFailure?.(
+            event.reason || 'Unknown error',
+            current as LMStudioToolCallInfo | undefined
+          );
+          state.setCurrentToolCall(null);
         }
         break;
 

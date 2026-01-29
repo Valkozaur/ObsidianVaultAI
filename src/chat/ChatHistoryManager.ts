@@ -1,8 +1,13 @@
 import type VaultAIPlugin from '../main';
-import { Conversation, ChatHistory, ChatMessage, ContextScope } from '../types';
+import { Conversation, ChatHistory, ChatMessage, ContextScope, LMStudioToolCallOutput } from '../types';
 
 const CHAT_HISTORY_KEY = 'chat-history';
 
+/**
+ * ChatHistoryManager handles local conversation storage and syncs with LMStudio's stateful sessions.
+ * When using LMStudio, the conversation state is primarily maintained by LMStudio via response_id,
+ * while this manager keeps a local cache for display and offline access.
+ */
 export class ChatHistoryManager {
   private plugin: VaultAIPlugin;
   private history: ChatHistory;
@@ -112,6 +117,102 @@ export class ChatHistoryManager {
   getLMStudioResponseId(conversationId: string): string | undefined {
     const conversation = this.getConversation(conversationId);
     return conversation?.lmStudioResponseId;
+  }
+
+  /**
+   * Start a new LMStudio session for a conversation.
+   * This clears the existing response_id so a fresh session is started.
+   */
+  async startNewLMStudioSession(conversationId: string): Promise<void> {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return;
+
+    conversation.lmStudioResponseId = undefined;
+    conversation.updatedAt = Date.now();
+    await this.save();
+  }
+
+  /**
+   * Check if a conversation has an active LMStudio session.
+   */
+  hasLMStudioSession(conversationId: string): boolean {
+    const conversation = this.getConversation(conversationId);
+    return !!conversation?.lmStudioResponseId;
+  }
+
+  /**
+   * Add a message with tool calls from LMStudio.
+   * This tracks MCP tool calls that were executed by LMStudio.
+   */
+  async addMessageWithToolCalls(
+    conversationId: string,
+    message: ChatMessage,
+    toolCalls?: LMStudioToolCallOutput[]
+  ): Promise<void> {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return;
+
+    // If there are tool calls, add them to the message's agentSteps
+    if (toolCalls && toolCalls.length > 0) {
+      message.agentSteps = toolCalls.map(tc => ({
+        type: 'tool_call' as const,
+        toolCall: {
+          tool: tc.tool,
+          params: tc.arguments as Record<string, any>,
+        },
+        toolResult: {
+          success: true,
+          result: tc.output,
+        },
+      }));
+
+      // Track actions performed by tool calls
+      message.actionsPerformed = toolCalls.map(tc =>
+        `[${tc.provider_info?.server_label || tc.provider_info?.plugin_id || 'MCP'}] ${tc.tool}(${JSON.stringify(tc.arguments).slice(0, 50)}...)`
+      );
+    }
+
+    conversation.messages.push(message);
+    conversation.updatedAt = Date.now();
+
+    // Auto-generate title from first user message if still "New Chat"
+    if (conversation.title === 'New Chat' && message.role === 'user') {
+      conversation.title = this.generateTitle(message.content);
+    }
+
+    await this.save();
+  }
+
+  /**
+   * Get the last message in a conversation.
+   */
+  getLastMessage(conversationId: string): ChatMessage | undefined {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation || conversation.messages.length === 0) return undefined;
+    return conversation.messages[conversation.messages.length - 1];
+  }
+
+  /**
+   * Update the last assistant message in a conversation.
+   * Used when LMStudio streaming completes to update the message.
+   */
+  async updateLastAssistantMessage(
+    conversationId: string,
+    updates: Partial<ChatMessage>
+  ): Promise<void> {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return;
+
+    // Find the last assistant message
+    for (let i = conversation.messages.length - 1; i >= 0; i--) {
+      if (conversation.messages[i].role === 'assistant') {
+        conversation.messages[i] = { ...conversation.messages[i], ...updates };
+        break;
+      }
+    }
+
+    conversation.updatedAt = Date.now();
+    await this.save();
   }
 
   async deleteConversation(id: string): Promise<void> {
