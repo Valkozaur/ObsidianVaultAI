@@ -15,6 +15,7 @@ import {
 import { AgenticSearch } from '../search/AgenticSearch';
 import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
 import { ChatAgent } from '../agent/ChatAgent';
+import { SystemInstructionsLoader } from '../prompts/SystemInstructionsLoader';
 
 export class ChatTab {
   private plugin: VaultAIPlugin;
@@ -845,12 +846,8 @@ export class ChatTab {
     // Create streaming message UI
     this.createStreamingMessage();
 
-    const systemPrompt = `You are a helpful assistant that answers questions based on the user's personal notes.
-Be concise and helpful. When answering:
-- Directly answer the question based on the provided notes
-- Mention which notes contain the relevant information
-- If the notes don't contain enough information to fully answer, say so
-- Do not make up information that isn't in the notes`;
+    // Build dynamic system prompt
+    const systemPrompt = await this.buildLMStudioSystemPrompt();
 
     // Build context from vault search
     const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
@@ -1124,11 +1121,102 @@ Please answer the question based on the information found.`;
   }
 
   /**
+   * Build the system prompt for LMStudio with current page context and custom instructions
+   */
+  private async buildLMStudioSystemPrompt(): Promise<string> {
+    let systemPrompt = `You are a helpful assistant that answers questions based on the user's personal notes.
+Be concise and helpful. When answering:
+- Directly answer the question based on the provided notes
+- Mention which notes contain the relevant information
+- If the notes don't contain enough information to fully answer, say so
+- Do not make up information that isn't in the notes
+
+You have access to tools that allow you to interact with the user's Obsidian vault:
+- search_vault: Search for notes containing specific terms
+- read_note: Read the full content of a specific note
+- get_current_page: Get the content of the currently open page
+- create_note: Create a new note
+- append_to_note: Add content to an existing note
+- list_folder: List files in a folder
+- rename_file: Rename a file
+- move_file: Move a file to a different folder
+
+Use these tools to help answer user questions about their vault.`;
+
+    // Add current page context
+    const activeFile = this.plugin.app.workspace.getActiveFile();
+    if (activeFile) {
+      try {
+        const content = await this.plugin.app.vault.read(activeFile);
+        const cache = this.plugin.app.metadataCache.getFileCache(activeFile);
+
+        systemPrompt += `\n\n## Currently Open Page\n\n`;
+        systemPrompt += `**Path**: ${activeFile.path}\n`;
+        systemPrompt += `**Name**: ${activeFile.basename}\n`;
+
+        if (cache?.frontmatter) {
+          const frontmatterStr = JSON.stringify(cache.frontmatter);
+          if (frontmatterStr.length < 500) {
+            systemPrompt += `**Frontmatter**: ${frontmatterStr}\n`;
+          }
+        }
+
+        // Truncate content if too long
+        const maxContentLength = 3000;
+        const truncatedContent = content.length > maxContentLength
+          ? content.slice(0, maxContentLength) + '\n\n[Content truncated...]'
+          : content;
+
+        systemPrompt += `\n### Current Page Content\n\n<current_page>\n${truncatedContent}\n</current_page>`;
+      } catch (error) {
+        console.error('[ChatTab] Error getting current page context:', error);
+      }
+    } else {
+      systemPrompt += `\n\n## Currently Open Page\n\nNo file is currently open in Obsidian.`;
+    }
+
+    // Load custom instructions if enabled
+    if (this.plugin.settings.useSystemInstructions && this.plugin.settings.systemInstructionsPath) {
+      const loader = new SystemInstructionsLoader(this.plugin.app);
+      const customInstructions = await loader.load(this.plugin.settings.systemInstructionsPath);
+      if (customInstructions) {
+        systemPrompt += `\n\n## Custom Instructions from ${this.plugin.settings.systemInstructionsPath}\n\n${customInstructions}`;
+      }
+    }
+
+    return systemPrompt;
+  }
+
+  /**
    * Build MCP integrations array from plugin settings.
-   * This includes both LM Studio plugins and external ephemeral MCP servers.
+   * This includes the built-in Obsidian MCP server, LM Studio plugins, and external ephemeral MCP servers.
    */
   private buildMCPIntegrations(): LMStudioIntegration[] {
     const integrations: LMStudioIntegration[] = [];
+
+    // Add the built-in Obsidian MCP server if enabled and running
+    if (this.plugin.settings.mcpServerEnabled && this.plugin.isMCPServerRunning()) {
+      const serverUrl = this.plugin.getMCPServerUrl();
+      if (serverUrl) {
+        integrations.push({
+          type: 'ephemeral_mcp',
+          server_label: 'obsidian-vault',
+          server_url: serverUrl,
+          // All available tools from the built-in server
+          allowed_tools: [
+            'search_vault',
+            'read_note',
+            'get_current_page',
+            'create_note',
+            'append_to_note',
+            'list_folder',
+            'rename_file',
+            'move_file',
+          ],
+        });
+        console.log('[Vault AI] Added built-in MCP server to integrations:', serverUrl);
+      }
+    }
 
     // Add LM Studio MCP plugins (shorthand string format)
     for (const pluginId of this.plugin.settings.mcpPlugins) {

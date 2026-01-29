@@ -6,6 +6,7 @@ import { LLMMessage, ContextScope, FormatSuggestion, FileOperation } from '../ty
 import { AGENT_SYSTEM_PROMPT } from '../prompts/agent';
 import { FORMAT_SYSTEM_PROMPT, buildFormatPrompt } from '../prompts/format';
 import { STRUCTURE_SYSTEM_PROMPT, buildStructurePrompt } from '../prompts/structure';
+import { SystemInstructionsLoader } from '../prompts/SystemInstructionsLoader';
 
 // Tool definitions
 export interface Tool {
@@ -161,9 +162,12 @@ export class ChatAgent {
     let finalSources: string[] = [];
     let iteration = 0;
 
+    // Build dynamic system prompt with current page context and custom instructions
+    const systemPrompt = await this.buildSystemPrompt(scope);
+
     // Build the initial messages
     const messages: LLMMessage[] = [
-      { role: 'system', content: AGENT_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       ...conversationHistory,
       { role: 'user', content: this.buildUserPrompt(userQuery, scope) },
     ];
@@ -267,6 +271,76 @@ Current context:
 - Search scope: ${scopeDescription[scope]}
 
 Please help the user with their request. Use the available tools to search, read, create, or modify notes as needed. When done, use the final_answer tool to provide your response.`;
+  }
+
+  /**
+   * Build the system prompt with current page context and custom instructions
+   */
+  private async buildSystemPrompt(scope: ContextScope): Promise<string> {
+    let systemPrompt = AGENT_SYSTEM_PROMPT;
+
+    // Add current page context
+    const currentPageContext = await this.getCurrentPageContext();
+    if (currentPageContext) {
+      systemPrompt += `\n\n${currentPageContext}`;
+    }
+
+    // Load custom instructions if enabled
+    if (this.plugin.settings.useSystemInstructions && this.plugin.settings.systemInstructionsPath) {
+      const loader = new SystemInstructionsLoader(this.app);
+      const customInstructions = await loader.load(this.plugin.settings.systemInstructionsPath);
+      if (customInstructions) {
+        systemPrompt += `\n\n## Custom Instructions from ${this.plugin.settings.systemInstructionsPath}\n\n${customInstructions}`;
+      }
+    }
+
+    return systemPrompt;
+  }
+
+  /**
+   * Get context about the currently open page
+   */
+  private async getCurrentPageContext(): Promise<string | null> {
+    const activeFile = this.app.workspace.getActiveFile();
+
+    if (!activeFile) {
+      return `## Currently Open Page\n\nNo file is currently open in Obsidian.`;
+    }
+
+    try {
+      const content = await this.app.vault.read(activeFile);
+      const cache = this.app.metadataCache.getFileCache(activeFile);
+
+      let context = `## Currently Open Page\n\n`;
+      context += `**Path**: ${activeFile.path}\n`;
+      context += `**Name**: ${activeFile.basename}\n`;
+
+      if (cache?.frontmatter) {
+        const frontmatterStr = JSON.stringify(cache.frontmatter);
+        if (frontmatterStr.length < 500) {
+          context += `**Frontmatter**: ${frontmatterStr}\n`;
+        }
+      }
+
+      // Get outgoing links
+      if (cache?.links && cache.links.length > 0) {
+        const links = cache.links.map(l => l.link).slice(0, 10);
+        context += `**Outgoing links**: ${links.join(', ')}\n`;
+      }
+
+      // Truncate content if too long
+      const maxContentLength = 4000;
+      const truncatedContent = content.length > maxContentLength
+        ? content.slice(0, maxContentLength) + '\n\n[Content truncated...]'
+        : content;
+
+      context += `\n### Current Page Content\n\n<current_page>\n${truncatedContent}\n</current_page>`;
+
+      return context;
+    } catch (error) {
+      console.error('[ChatAgent] Error getting current page context:', error);
+      return null;
+    }
   }
 
   private parseToolCall(response: string): ToolCall | null {

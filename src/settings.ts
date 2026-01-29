@@ -242,6 +242,102 @@ export class VaultAISettingTab extends PluginSettingTab {
     featureList.createEl('li', { text: 'Search and read notes' });
     featureList.createEl('li', { text: 'List folder contents' });
 
+    // Built-in MCP Server Section
+    containerEl.createEl('h3', { text: 'Built-in MCP Server' });
+
+    const mcpServerInfo = containerEl.createDiv('vault-ai-mcp-server-info');
+    mcpServerInfo.createEl('p', {
+      text: 'The built-in MCP server exposes Obsidian vault tools (search, read, create notes) to LMStudio. This enables native tool calling without external MCP servers.',
+      cls: 'vault-ai-info-text setting-item-description',
+    });
+
+    // Enable MCP Server
+    new Setting(containerEl)
+      .setName('Enable Built-in MCP Server')
+      .setDesc('Run a local MCP server that exposes vault tools to LMStudio')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.mcpServerEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.mcpServerEnabled = value;
+            await this.plugin.saveSettings();
+            // Restart MCP server if needed
+            if (value) {
+              await this.plugin.startMCPServer();
+            } else {
+              await this.plugin.stopMCPServer();
+            }
+          })
+      );
+
+    // MCP Server Port
+    new Setting(containerEl)
+      .setName('MCP Server Port')
+      .setDesc('Port for the built-in MCP server (requires restart to take effect)')
+      .addText((text) =>
+        text
+          .setPlaceholder('3456')
+          .setValue(String(this.plugin.settings.mcpServerPort))
+          .onChange(async (value) => {
+            const num = parseInt(value);
+            if (!isNaN(num) && num >= 1024 && num <= 65535) {
+              this.plugin.settings.mcpServerPort = num;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
+
+    // System Instructions Section
+    containerEl.createEl('h3', { text: 'System Instructions' });
+
+    const instructionsInfo = containerEl.createDiv('vault-ai-instructions-info');
+    instructionsInfo.createEl('p', {
+      text: 'Load custom system instructions from a file in your vault (e.g., Agent.md). These instructions are appended to the default system prompt.',
+      cls: 'vault-ai-info-text setting-item-description',
+    });
+
+    // Enable System Instructions
+    new Setting(containerEl)
+      .setName('Use Custom System Instructions')
+      .setDesc('Load additional system instructions from a file in your vault')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.useSystemInstructions)
+          .onChange(async (value) => {
+            this.plugin.settings.useSystemInstructions = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // System Instructions File Path
+    new Setting(containerEl)
+      .setName('System Instructions File')
+      .setDesc('Path to a markdown file containing custom system instructions (e.g., "Agent.md" or "System/Prompt.md")')
+      .addText((text) =>
+        text
+          .setPlaceholder('Agent.md')
+          .setValue(this.plugin.settings.systemInstructionsPath)
+          .onChange(async (value) => {
+            this.plugin.settings.systemInstructionsPath = value;
+            await this.plugin.saveSettings();
+          })
+      )
+      .addButton((button) =>
+        button
+          .setButtonText('Create Default')
+          .setTooltip('Create a default instructions file if it doesn\'t exist')
+          .onClick(async () => {
+            const { SystemInstructionsLoader } = await import('./prompts/SystemInstructionsLoader');
+            const loader = new SystemInstructionsLoader(this.app);
+            const created = await loader.createDefaultIfNotExists(this.plugin.settings.systemInstructionsPath);
+            if (created) {
+              new Notice(`Created ${this.plugin.settings.systemInstructionsPath}`);
+            } else {
+              new Notice('File already exists');
+            }
+          })
+      );
+
     // Connection Status
     containerEl.createEl('h3', { text: 'Connection Status' });
 

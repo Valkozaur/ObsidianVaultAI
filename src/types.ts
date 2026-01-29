@@ -27,13 +27,19 @@ export interface VaultAISettings {
   // MCP integration settings
   mcpServers: MCPServerConfig[];
   mcpPlugins: string[]; // Plugin IDs for LM Studio's built-in MCP plugins
+  // Built-in MCP server settings
+  mcpServerEnabled: boolean;
+  mcpServerPort: number;
+  // System instructions settings
+  systemInstructionsPath: string;
+  useSystemInstructions: boolean;
 }
 
 export const DEFAULT_SETTINGS: VaultAISettings = {
-  serverType: 'ollama',
-  serverUrl: 'http://localhost:11434',
+  serverType: 'lmstudio',
+  serverUrl: 'http://localhost:1234',
   selectedModel: '',
-  defaultContextScope: 'current',
+  defaultContextScope: 'vault',
   maxSearchIterations: 5,
   showThinkingProcess: true,
   enableAgentMode: true,
@@ -43,6 +49,12 @@ export const DEFAULT_SETTINGS: VaultAISettings = {
   // MCP defaults
   mcpServers: [],
   mcpPlugins: [],
+  // Built-in MCP server defaults
+  mcpServerEnabled: true,
+  mcpServerPort: 3456,
+  // System instructions defaults
+  systemInstructionsPath: 'Agent.md',
+  useSystemInstructions: true,
 };
 
 export const DEFAULT_URLS: Record<ServerType, string> = {

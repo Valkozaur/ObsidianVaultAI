@@ -8,6 +8,7 @@ import { VaultAIView, VIEW_TYPE_VAULT_AI } from './ui/SidebarView';
 import { ChatWindowView, VIEW_TYPE_CHAT_WINDOW } from './ui/ChatWindowView';
 import { UndoStack } from './operations/UndoStack';
 import { ChatHistoryManager } from './chat/ChatHistoryManager';
+import { ObsidianMCPServer } from './mcp/ObsidianMCPServer';
 
 export default class VaultAIPlugin extends Plugin {
   settings: VaultAISettings = DEFAULT_SETTINGS;
@@ -16,6 +17,7 @@ export default class VaultAIPlugin extends Plugin {
   connectionStatus: ConnectionStatus = 'offline';
   chatHistory: ChatHistoryManager = null!;
   availableModels: string[] = [];
+  mcpServer: ObsidianMCPServer | null = null;
 
   private statusBarItem: HTMLElement | null = null;
 
@@ -106,9 +108,17 @@ export default class VaultAIPlugin extends Plugin {
 
     // Check connection on load
     this.checkConnection();
+
+    // Start MCP server if enabled
+    if (this.settings.mcpServerEnabled) {
+      this.startMCPServer();
+    }
   }
 
-  onunload(): void {
+  async onunload(): Promise<void> {
+    // Stop MCP server
+    await this.stopMCPServer();
+
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_VAULT_AI);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT_WINDOW);
   }
@@ -303,5 +313,49 @@ export default class VaultAIPlugin extends Plugin {
     view.setConversationId(convId);
 
     workspace.revealLeaf(leaf);
+  }
+
+  /**
+   * Start the built-in MCP server
+   */
+  async startMCPServer(): Promise<void> {
+    if (this.mcpServer?.isRunning()) {
+      console.log('[Vault AI] MCP server already running');
+      return;
+    }
+
+    try {
+      this.mcpServer = new ObsidianMCPServer(this);
+      await this.mcpServer.start();
+      console.log(`[Vault AI] MCP server started on port ${this.settings.mcpServerPort}`);
+    } catch (error) {
+      console.error('[Vault AI] Failed to start MCP server:', error);
+      this.mcpServer = null;
+    }
+  }
+
+  /**
+   * Stop the built-in MCP server
+   */
+  async stopMCPServer(): Promise<void> {
+    if (this.mcpServer) {
+      await this.mcpServer.stop();
+      this.mcpServer = null;
+      console.log('[Vault AI] MCP server stopped');
+    }
+  }
+
+  /**
+   * Check if MCP server is running
+   */
+  isMCPServerRunning(): boolean {
+    return this.mcpServer?.isRunning() ?? false;
+  }
+
+  /**
+   * Get MCP server URL
+   */
+  getMCPServerUrl(): string | null {
+    return this.mcpServer?.getServerUrl() ?? null;
   }
 }
