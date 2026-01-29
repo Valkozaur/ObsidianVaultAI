@@ -1,8 +1,9 @@
 import { MarkdownRenderer, Notice, TFile, setIcon, Menu } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import type { VaultAIView } from './SidebarView';
-import { ChatMessage, ContextScope, SearchStep, Conversation } from '../types';
+import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
+import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
 
 export class ChatTab {
   private plugin: VaultAIPlugin;
@@ -15,6 +16,13 @@ export class ChatTab {
   private modelDropdown: HTMLSelectElement | null = null;
   private isProcessing = false;
   private currentConversationId: string | null = null;
+
+  // Streaming state
+  private streamingMessageEl: HTMLElement | null = null;
+  private streamingContentEl: HTMLElement | null = null;
+  private streamingReasoningEl: HTMLElement | null = null;
+  private streamingContent = '';
+  private streamingReasoning = '';
 
   constructor(plugin: VaultAIPlugin, view: VaultAIView) {
     this.plugin = plugin;
@@ -312,6 +320,14 @@ export class ChatTab {
       `vault-ai-message vault-ai-message-${message.role}`
     );
 
+    // Render reasoning/thinking first (if present and enabled)
+    if (
+      this.plugin.settings.showThinkingProcess &&
+      message.reasoning
+    ) {
+      this.renderReasoningContent(messageEl, message.reasoning);
+    }
+
     const contentEl = messageEl.createDiv('vault-ai-message-content');
 
     // Render markdown content
@@ -346,7 +362,7 @@ export class ChatTab {
       }
     }
 
-    // Render thinking process if enabled and present
+    // Render search steps thinking process if enabled and present
     if (
       this.plugin.settings.showThinkingProcess &&
       message.searchSteps &&
@@ -354,6 +370,32 @@ export class ChatTab {
     ) {
       this.renderThinkingProcess(messageEl, message.searchSteps);
     }
+  }
+
+  private renderReasoningContent(parent: HTMLElement, reasoning: string): void {
+    const reasoningEl = parent.createDiv('vault-ai-reasoning');
+
+    const header = reasoningEl.createDiv('vault-ai-reasoning-header');
+    header.createSpan({ text: 'Thinking' });
+
+    const expandIcon = header.createSpan({ text: '▶', cls: 'expand-icon' });
+    const content = reasoningEl.createDiv('vault-ai-reasoning-content');
+    content.style.display = 'none';
+
+    // Render reasoning as markdown
+    MarkdownRenderer.render(
+      this.plugin.app,
+      reasoning,
+      content,
+      '',
+      this.view
+    );
+
+    header.addEventListener('click', () => {
+      const isExpanded = content.style.display !== 'none';
+      content.style.display = isExpanded ? 'none' : 'block';
+      expandIcon.textContent = isExpanded ? '▶' : '▼';
+    });
   }
 
   private renderThinkingProcess(parent: HTMLElement, steps: SearchStep[]): void {
@@ -391,6 +433,112 @@ export class ChatTab {
     }
   }
 
+  // Streaming message helpers
+  private createStreamingMessage(): void {
+    if (!this.messagesEl) return;
+
+    this.streamingContent = '';
+    this.streamingReasoning = '';
+
+    this.streamingMessageEl = this.messagesEl.createDiv(
+      'vault-ai-message vault-ai-message-assistant vault-ai-message-streaming'
+    );
+
+    // Create reasoning container (hidden initially)
+    if (this.plugin.settings.showThinkingProcess) {
+      this.streamingReasoningEl = this.streamingMessageEl.createDiv('vault-ai-reasoning');
+      const reasoningHeader = this.streamingReasoningEl.createDiv('vault-ai-reasoning-header');
+      reasoningHeader.createSpan({ text: 'Thinking...' });
+      const expandIcon = reasoningHeader.createSpan({ text: '▼', cls: 'expand-icon' });
+      const reasoningContent = this.streamingReasoningEl.createDiv('vault-ai-reasoning-content');
+      reasoningContent.style.display = 'block'; // Show while streaming
+
+      reasoningHeader.addEventListener('click', () => {
+        const isExpanded = reasoningContent.style.display !== 'none';
+        reasoningContent.style.display = isExpanded ? 'none' : 'block';
+        expandIcon.textContent = isExpanded ? '▶' : '▼';
+      });
+
+      // Hide until we get reasoning content
+      this.streamingReasoningEl.style.display = 'none';
+    }
+
+    this.streamingContentEl = this.streamingMessageEl.createDiv('vault-ai-message-content');
+    this.streamingContentEl.createSpan({ text: '...', cls: 'vault-ai-typing-indicator' });
+
+    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+  }
+
+  private updateStreamingContent(content: string): void {
+    if (!this.streamingContentEl) return;
+
+    this.streamingContent += content;
+    this.streamingContentEl.empty();
+
+    // Re-render markdown
+    MarkdownRenderer.render(
+      this.plugin.app,
+      this.streamingContent,
+      this.streamingContentEl,
+      '',
+      this.view
+    );
+
+    if (this.messagesEl) {
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    }
+  }
+
+  private updateStreamingReasoning(content: string): void {
+    if (!this.streamingReasoningEl || !this.plugin.settings.showThinkingProcess) return;
+
+    this.streamingReasoning += content;
+
+    // Show reasoning container
+    this.streamingReasoningEl.style.display = 'block';
+
+    const reasoningContent = this.streamingReasoningEl.querySelector('.vault-ai-reasoning-content');
+    if (reasoningContent) {
+      reasoningContent.empty();
+      MarkdownRenderer.render(
+        this.plugin.app,
+        this.streamingReasoning,
+        reasoningContent as HTMLElement,
+        '',
+        this.view
+      );
+    }
+
+    if (this.messagesEl) {
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    }
+  }
+
+  private finalizeStreamingMessage(): void {
+    if (this.streamingMessageEl) {
+      this.streamingMessageEl.removeClass('vault-ai-message-streaming');
+
+      // Update reasoning header text
+      if (this.streamingReasoningEl) {
+        const header = this.streamingReasoningEl.querySelector('.vault-ai-reasoning-header span:first-child');
+        if (header) {
+          header.textContent = 'Thinking';
+        }
+        // Collapse reasoning after streaming completes
+        const reasoningContent = this.streamingReasoningEl.querySelector('.vault-ai-reasoning-content') as HTMLElement;
+        const expandIcon = this.streamingReasoningEl.querySelector('.expand-icon');
+        if (reasoningContent && expandIcon) {
+          reasoningContent.style.display = 'none';
+          expandIcon.textContent = '▶';
+        }
+      }
+    }
+
+    this.streamingMessageEl = null;
+    this.streamingContentEl = null;
+    this.streamingReasoningEl = null;
+  }
+
   async sendMessage(): Promise<void> {
     if (!this.inputEl || this.isProcessing) return;
 
@@ -425,10 +573,126 @@ export class ChatTab {
     this.renderMessages();
     this.renderHistoryList(); // Update title if changed
 
-    // Process with agentic search
+    // Process message
     this.isProcessing = true;
     this.view.setConnectionStatus('thinking');
 
+    // Check if using LMStudio with new API
+    const isLMStudio = this.plugin.settings.serverType === 'lmstudio';
+
+    if (isLMStudio) {
+      await this.sendMessageLMStudio(userMessage);
+    } else {
+      await this.sendMessageLegacy(userMessage);
+    }
+  }
+
+  private async sendMessageLMStudio(userMessage: string): Promise<void> {
+    const lmClient = this.plugin.llmClient as LMStudioClient;
+
+    // Get the previous response ID for conversation continuity
+    const previousResponseId = this.plugin.chatHistory.getLMStudioResponseId(
+      this.currentConversationId!
+    );
+
+    // Create streaming message UI
+    this.createStreamingMessage();
+
+    const systemPrompt = `You are a helpful assistant that answers questions based on the user's personal notes.
+Be concise and helpful. When answering:
+- Directly answer the question based on the provided notes
+- Mention which notes contain the relevant information
+- If the notes don't contain enough information to fully answer, say so
+- Do not make up information that isn't in the notes`;
+
+    // Build context from vault search
+    const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
+    const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
+
+    // Get vault context
+    const search = new AgenticSearch(this.plugin);
+    const searchResult = await search.search(userMessage, scope);
+
+    // Build input with context
+    let input = userMessage;
+    if (searchResult.sources.length > 0) {
+      input = `Based on the following notes from my vault, please answer this question: "${userMessage}"
+
+--- NOTES FROM VAULT ---
+
+${searchResult.sources.map((s) => `Source: ${s}`).join('\n')}
+
+--- END OF NOTES ---
+
+Please answer the question based on the information found.`;
+    }
+
+    try {
+      const result = await lmClient.chatV1(input, {
+        systemPrompt,
+        previousResponseId,
+        store: true,
+        callbacks: {
+          onMessageDelta: (content) => {
+            this.updateStreamingContent(content);
+          },
+          onReasoningDelta: (content) => {
+            this.updateStreamingReasoning(content);
+          },
+          onReasoningStart: () => {
+            console.log('[Vault AI] Reasoning started');
+          },
+          onReasoningEnd: () => {
+            console.log('[Vault AI] Reasoning ended');
+          },
+          onError: (error) => {
+            console.error('[Vault AI] Stream error:', error);
+            new Notice(`Error: ${error.message}`);
+          },
+        },
+      });
+
+      // Finalize the streaming message
+      this.finalizeStreamingMessage();
+
+      // Update the LMStudio response ID for conversation continuity
+      if (result.responseId) {
+        await this.plugin.chatHistory.updateLMStudioResponseId(
+          this.currentConversationId!,
+          result.responseId
+        );
+      }
+
+      // Add assistant message with results
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: result.content,
+        timestamp: Date.now(),
+        sources: searchResult.sources,
+        searchSteps: searchResult.steps,
+        reasoning: result.reasoning,
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
+    } catch (error) {
+      console.error('LMStudio chat error:', error);
+      this.finalizeStreamingMessage();
+
+      const errorMsg: ChatMessage = {
+        role: 'assistant',
+        content: `I encountered an error: ${error}. Please try again.`,
+        timestamp: Date.now(),
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
+    } finally {
+      this.isProcessing = false;
+      this.view.setConnectionStatus('ready');
+      this.renderMessages();
+    }
+  }
+
+  private async sendMessageLegacy(userMessage: string): Promise<void> {
     try {
       const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
       const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
