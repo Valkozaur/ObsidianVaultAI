@@ -13,6 +13,7 @@ export interface VaultAISettings {
   defaultContextScope: ContextScope;
   maxSearchIterations: number;
   showThinkingProcess: boolean;
+  enableAgentMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: VaultAISettings = {
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: VaultAISettings = {
   defaultContextScope: 'current',
   maxSearchIterations: 5,
   showThinkingProcess: true,
+  enableAgentMode: true,
 };
 
 export const DEFAULT_URLS: Record<ServerType, string> = {
@@ -41,6 +43,24 @@ export interface ChatMessage {
   timestamp: number;
   sources?: string[];
   searchSteps?: SearchStep[];
+  agentSteps?: AgentStep[];
+  actionsPerformed?: string[];
+}
+
+export interface AgentStep {
+  type: 'tool_call' | 'final_answer';
+  toolCall?: {
+    tool: string;
+    params: Record<string, any>;
+    reasoning?: string;
+  };
+  toolResult?: {
+    success: boolean;
+    result: string;
+    data?: any;
+  };
+  answer?: string;
+  sources?: string[];
 }
 
 export interface SearchStep {

@@ -1,7 +1,8 @@
 import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, TFile, setIcon, Menu } from 'obsidian';
 import type VaultAIPlugin from '../main';
-import { ChatMessage, ContextScope, SearchStep, Conversation } from '../types';
+import { ChatMessage, ContextScope, SearchStep, Conversation, AgentStep } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
+import { ChatAgent } from '../agent/ChatAgent';
 
 export const VIEW_TYPE_CHAT_WINDOW = 'vault-ai-chat-window';
 
@@ -279,6 +280,17 @@ export class ChatWindowView extends ItemView {
       this
     );
 
+    // Render actions performed if present (for agent mode)
+    if (message.actionsPerformed && message.actionsPerformed.length > 0) {
+      const actionsEl = messageEl.createDiv('vault-ai-actions-performed');
+      actionsEl.createEl('strong', { text: 'Actions performed:' });
+      const actionsList = actionsEl.createEl('ul');
+
+      for (const action of message.actionsPerformed) {
+        actionsList.createEl('li', { text: action, cls: 'vault-ai-action-item' });
+      }
+    }
+
     // Render sources if present
     if (message.sources && message.sources.length > 0) {
       const sourcesEl = messageEl.createDiv('vault-ai-sources');
@@ -309,6 +321,15 @@ export class ChatWindowView extends ItemView {
       message.searchSteps.length > 0
     ) {
       this.renderThinkingProcess(messageEl, message.searchSteps);
+    }
+
+    // Render agent steps if enabled and present (for agent mode)
+    if (
+      this.plugin.settings.showThinkingProcess &&
+      message.agentSteps &&
+      message.agentSteps.length > 0
+    ) {
+      this.renderAgentSteps(messageEl, message.agentSteps);
     }
   }
 
@@ -347,6 +368,56 @@ export class ChatWindowView extends ItemView {
     }
   }
 
+  private renderAgentSteps(parent: HTMLElement, steps: AgentStep[]): void {
+    const agentEl = parent.createDiv('vault-ai-agent-steps');
+
+    const header = agentEl.createDiv('vault-ai-thinking-header');
+    const toolCalls = steps.filter(s => s.type === 'tool_call').length;
+    header.createSpan({ text: `Agent activity (${toolCalls} tool calls)` });
+
+    const expandIcon = header.createSpan({ text: '▶', cls: 'expand-icon' });
+    const content = agentEl.createDiv('vault-ai-thinking-content');
+    content.style.display = 'none';
+
+    header.addEventListener('click', () => {
+      const isExpanded = content.style.display !== 'none';
+      content.style.display = isExpanded ? 'none' : 'block';
+      expandIcon.textContent = isExpanded ? '▶' : '▼';
+    });
+
+    let stepNum = 0;
+    for (const step of steps) {
+      if (step.type === 'tool_call' && step.toolCall) {
+        stepNum++;
+        const stepEl = content.createDiv('vault-ai-thinking-step');
+
+        const toolName = step.toolCall.tool;
+        const statusIcon = step.toolResult?.success ? '✓' : '✗';
+        stepEl.createEl('strong', {
+          text: `${stepNum}. ${toolName} ${statusIcon}`,
+          cls: step.toolResult?.success ? 'tool-success' : 'tool-failure',
+        });
+
+        // Show params (abbreviated)
+        const paramsStr = Object.entries(step.toolCall.params)
+          .map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 50) : JSON.stringify(v).slice(0, 50)}`)
+          .join(', ');
+        if (paramsStr) {
+          stepEl.createEl('p', { text: paramsStr, cls: 'tool-params' });
+        }
+
+        // Show result summary
+        if (step.toolResult) {
+          const resultText = step.toolResult.result.slice(0, 150);
+          stepEl.createEl('p', {
+            text: resultText + (step.toolResult.result.length > 150 ? '...' : ''),
+            cls: 'tool-result',
+          });
+        }
+      }
+    }
+  }
+
   async sendMessage(): Promise<void> {
     if (!this.inputEl || this.isProcessing || !this.conversationId) return;
 
@@ -378,7 +449,7 @@ export class ChatWindowView extends ItemView {
     // Update displayed title if this is the first message
     this.updateDisplayedTitle();
 
-    // Process with agentic search
+    // Process with agent or agentic search
     this.isProcessing = true;
     this.plugin.setConnectionStatus('thinking');
 
@@ -386,17 +457,34 @@ export class ChatWindowView extends ItemView {
       const conversation = this.getConversation();
       const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
 
-      const search = new AgenticSearch(this.plugin);
-      const result = await search.search(userMessage, scope);
+      let assistantMsg: ChatMessage;
 
-      // Add assistant message with results
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        content: result.answer,
-        timestamp: Date.now(),
-        sources: result.sources,
-        searchSteps: result.steps,
-      };
+      if (this.plugin.settings.enableAgentMode) {
+        // Use the new ChatAgent with tool capabilities
+        const agent = new ChatAgent(this.plugin);
+        const result = await agent.execute(userMessage, scope);
+
+        assistantMsg = {
+          role: 'assistant',
+          content: result.answer,
+          timestamp: Date.now(),
+          sources: result.sources,
+          agentSteps: result.steps,
+          actionsPerformed: result.actionsPerformed,
+        };
+      } else {
+        // Use the original agentic search (read-only)
+        const search = new AgenticSearch(this.plugin);
+        const result = await search.search(userMessage, scope);
+
+        assistantMsg = {
+          role: 'assistant',
+          content: result.answer,
+          timestamp: Date.now(),
+          sources: result.sources,
+          searchSteps: result.steps,
+        };
+      }
 
       await this.plugin.chatHistory.addMessage(this.conversationId, assistantMsg);
     } catch (error) {
@@ -404,7 +492,7 @@ export class ChatWindowView extends ItemView {
 
       const errorMsg: ChatMessage = {
         role: 'assistant',
-        content: `I encountered an error while searching: ${error}. Please try again.`,
+        content: `I encountered an error: ${error}. Please try again.`,
         timestamp: Date.now(),
       };
 
