@@ -2,8 +2,32 @@ import { MarkdownView, Notice, TFile } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import type { VaultAIView } from './SidebarView';
 import { FormatSuggestion, FormatAnalysisResult, LLMMessage } from '../types';
-import { DiffModal } from './DiffModal';
 import { FORMAT_SYSTEM_PROMPT, buildFormatPrompt } from '../prompts/format';
+
+/**
+ * Represents a diff operation type
+ */
+type DiffType = 'equal' | 'insert' | 'delete';
+
+/**
+ * Represents a single diff chunk at the line level
+ */
+interface LineDiff {
+  type: DiffType;
+  oldLine?: number;
+  newLine?: number;
+  oldText?: string;
+  newText?: string;
+  charDiffs?: CharDiff[];
+}
+
+/**
+ * Represents character-level differences within a line
+ */
+interface CharDiff {
+  type: DiffType;
+  text: string;
+}
 
 export class FormatTab {
   private plugin: VaultAIPlugin;
@@ -115,37 +139,309 @@ export class FormatTab {
 
     const headerEl = suggestionEl.createDiv('vault-ai-suggestion-header');
 
-    const categoryBadge = headerEl.createSpan({
+    headerEl.createSpan({
       text: suggestion.category,
       cls: `vault-ai-category-badge category-${suggestion.category}`,
     });
 
-    headerEl.createSpan({ text: suggestion.description });
+    headerEl.createSpan({ text: suggestion.description, cls: 'vault-ai-suggestion-description' });
 
     if (suggestion.applied) {
       headerEl.createSpan({ text: '✓ Applied', cls: 'vault-ai-applied-badge' });
     }
 
-    const actionsEl = suggestionEl.createDiv('vault-ai-suggestion-actions');
-
     if (!suggestion.applied) {
-      const previewBtn = actionsEl.createEl('button', {
-        text: 'Preview',
-        cls: 'vault-ai-preview-button',
+      // Embedded unified diff view
+      const diffContainer = suggestionEl.createDiv('vault-ai-embedded-diff');
+      this.renderEmbeddedDiff(diffContainer, suggestion.before, suggestion.after);
+
+      // Accept/Decline buttons
+      const actionsEl = suggestionEl.createDiv('vault-ai-suggestion-actions');
+
+      const declineBtn = actionsEl.createEl('button', {
+        text: 'Decline',
+        cls: 'vault-ai-decline-button',
       });
 
-      previewBtn.addEventListener('click', () => {
-        this.previewSuggestion(suggestion);
+      declineBtn.addEventListener('click', () => {
+        this.declineSuggestion(suggestion);
       });
 
-      const applyBtn = actionsEl.createEl('button', {
-        text: 'Apply',
-        cls: 'vault-ai-apply-button',
+      const acceptBtn = actionsEl.createEl('button', {
+        text: 'Accept',
+        cls: 'vault-ai-accept-button',
       });
 
-      applyBtn.addEventListener('click', () => {
+      acceptBtn.addEventListener('click', () => {
         this.applySuggestion(suggestion);
       });
+    }
+  }
+
+  private renderEmbeddedDiff(container: HTMLElement, before: string, after: string): void {
+    const lineDiffs = this.computeDiff(before, after);
+    const content = container.createDiv('vault-ai-embedded-diff-content');
+
+    for (const diff of lineDiffs) {
+      if (diff.type === 'equal') {
+        this.renderUnifiedLine(content, ' ', diff.oldLine!, diff.newLine!, diff.oldText!, 'unchanged');
+      } else if (diff.type === 'delete') {
+        this.renderUnifiedLine(content, '-', diff.oldLine!, undefined, diff.oldText!, 'removed');
+      } else if (diff.type === 'insert') {
+        this.renderUnifiedLine(content, '+', undefined, diff.newLine!, diff.newText!, 'added');
+      } else if (diff.charDiffs) {
+        // Modified: show delete then insert with char diffs
+        this.renderUnifiedLineWithCharDiffs(content, '-', diff.oldLine!, undefined, diff.oldText!, diff.charDiffs, 'removed');
+        this.renderUnifiedLineWithCharDiffs(content, '+', undefined, diff.newLine!, diff.newText!, diff.charDiffs, 'added');
+      }
+    }
+  }
+
+  private renderUnifiedLine(
+    container: HTMLElement,
+    prefix: string,
+    oldLineNum: number | undefined,
+    newLineNum: number | undefined,
+    text: string,
+    type: 'unchanged' | 'added' | 'removed'
+  ): void {
+    const lineEl = container.createDiv(`vault-ai-diff-line ${type}`);
+
+    lineEl.createSpan({ text: prefix, cls: 'line-prefix' });
+
+    const contentEl = lineEl.createSpan({ cls: 'line-content' });
+    contentEl.textContent = text || ' ';
+  }
+
+  private renderUnifiedLineWithCharDiffs(
+    container: HTMLElement,
+    prefix: string,
+    oldLineNum: number | undefined,
+    newLineNum: number | undefined,
+    text: string,
+    charDiffs: CharDiff[],
+    type: 'added' | 'removed'
+  ): void {
+    const lineEl = container.createDiv(`vault-ai-diff-line modified ${type}`);
+
+    lineEl.createSpan({ text: prefix, cls: 'line-prefix' });
+
+    const contentEl = lineEl.createSpan({ cls: 'line-content' });
+
+    for (const charDiff of charDiffs) {
+      if (charDiff.type === 'equal') {
+        contentEl.createSpan({ text: charDiff.text });
+      } else if (charDiff.type === 'delete' && type === 'removed') {
+        contentEl.createSpan({ text: charDiff.text, cls: 'char-removed' });
+      } else if (charDiff.type === 'insert' && type === 'added') {
+        contentEl.createSpan({ text: charDiff.text, cls: 'char-added' });
+      }
+    }
+
+    if (!contentEl.textContent) {
+      contentEl.textContent = ' ';
+    }
+  }
+
+  /**
+   * Compute line-level diff using LCS approach
+   */
+  private computeDiff(before: string, after: string): LineDiff[] {
+    const oldLines = before.split('\n');
+    const newLines = after.split('\n');
+
+    const diffs: LineDiff[] = [];
+    const lcs = this.longestCommonSubsequence(oldLines, newLines);
+
+    let oldIdx = 0;
+    let newIdx = 0;
+    let lcsIdx = 0;
+
+    while (oldIdx < oldLines.length || newIdx < newLines.length) {
+      if (lcsIdx < lcs.length && oldIdx < oldLines.length && newIdx < newLines.length &&
+          oldLines[oldIdx] === lcs[lcsIdx] && newLines[newIdx] === lcs[lcsIdx]) {
+        diffs.push({
+          type: 'equal',
+          oldLine: oldIdx + 1,
+          newLine: newIdx + 1,
+          oldText: oldLines[oldIdx],
+          newText: newLines[newIdx],
+        });
+        oldIdx++;
+        newIdx++;
+        lcsIdx++;
+      } else if (oldIdx < oldLines.length && (lcsIdx >= lcs.length || oldLines[oldIdx] !== lcs[lcsIdx])) {
+        if (newIdx < newLines.length && (lcsIdx >= lcs.length || newLines[newIdx] !== lcs[lcsIdx])) {
+          const similarity = this.getSimilarity(oldLines[oldIdx], newLines[newIdx]);
+
+          if (similarity > 0.4) {
+            const charDiffs = this.computeCharDiff(oldLines[oldIdx], newLines[newIdx]);
+            diffs.push({
+              type: 'equal',
+              oldLine: oldIdx + 1,
+              newLine: newIdx + 1,
+              oldText: oldLines[oldIdx],
+              newText: newLines[newIdx],
+              charDiffs,
+            });
+            oldIdx++;
+            newIdx++;
+          } else {
+            diffs.push({
+              type: 'delete',
+              oldLine: oldIdx + 1,
+              oldText: oldLines[oldIdx],
+            });
+            oldIdx++;
+          }
+        } else {
+          diffs.push({
+            type: 'delete',
+            oldLine: oldIdx + 1,
+            oldText: oldLines[oldIdx],
+          });
+          oldIdx++;
+        }
+      } else if (newIdx < newLines.length) {
+        diffs.push({
+          type: 'insert',
+          newLine: newIdx + 1,
+          newText: newLines[newIdx],
+        });
+        newIdx++;
+      }
+    }
+
+    return diffs;
+  }
+
+  private longestCommonSubsequence(a: string[], b: string[]): string[] {
+    const m = a.length;
+    const n = b.length;
+    const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (a[i - 1] === b[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+
+    const lcs: string[] = [];
+    let i = m;
+    let j = n;
+
+    while (i > 0 && j > 0) {
+      if (a[i - 1] === b[j - 1]) {
+        lcs.unshift(a[i - 1]);
+        i--;
+        j--;
+      } else if (dp[i - 1][j] > dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+
+    return lcs;
+  }
+
+  private computeCharDiff(oldText: string, newText: string): CharDiff[] {
+    const diffs: CharDiff[] = [];
+    const oldWords = this.tokenize(oldText);
+    const newWords = this.tokenize(newText);
+    const lcs = this.longestCommonSubsequence(oldWords, newWords);
+
+    let oldIdx = 0;
+    let newIdx = 0;
+    let lcsIdx = 0;
+
+    while (oldIdx < oldWords.length || newIdx < newWords.length) {
+      if (lcsIdx < lcs.length && oldIdx < oldWords.length && newIdx < newWords.length &&
+          oldWords[oldIdx] === lcs[lcsIdx] && newWords[newIdx] === lcs[lcsIdx]) {
+        diffs.push({ type: 'equal', text: oldWords[oldIdx] });
+        oldIdx++;
+        newIdx++;
+        lcsIdx++;
+      } else if (oldIdx < oldWords.length && (lcsIdx >= lcs.length || oldWords[oldIdx] !== lcs[lcsIdx])) {
+        diffs.push({ type: 'delete', text: oldWords[oldIdx] });
+        oldIdx++;
+      } else if (newIdx < newWords.length) {
+        diffs.push({ type: 'insert', text: newWords[newIdx] });
+        newIdx++;
+      }
+    }
+
+    return diffs;
+  }
+
+  private tokenize(text: string): string[] {
+    const tokens: string[] = [];
+    let current = '';
+    let inWord = false;
+
+    for (const char of text) {
+      const isWordChar = /\S/.test(char);
+
+      if (isWordChar !== inWord) {
+        if (current) {
+          tokens.push(current);
+        }
+        current = char;
+        inWord = isWordChar;
+      } else {
+        current += char;
+      }
+    }
+
+    if (current) {
+      tokens.push(current);
+    }
+
+    return tokens;
+  }
+
+  private getSimilarity(a: string, b: string): number {
+    if (a === b) return 1;
+    if (a.length === 0 || b.length === 0) return 0;
+
+    const longer = a.length > b.length ? a : b;
+    const shorter = a.length > b.length ? b : a;
+
+    const editDistance = this.levenshteinDistance(shorter, longer);
+    return (longer.length - editDistance) / longer.length;
+  }
+
+  private levenshteinDistance(a: string, b: string): number {
+    const m = a.length;
+    const n = b.length;
+
+    const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (a[i - 1] === b[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+      }
+    }
+
+    return dp[m][n];
+  }
+
+  private declineSuggestion(suggestion: FormatSuggestion): void {
+    const index = this.suggestions.indexOf(suggestion);
+    if (index > -1) {
+      this.suggestions.splice(index, 1);
+      this.renderSuggestions();
     }
   }
 
@@ -244,17 +540,6 @@ export class FormatTab {
       console.error('Failed to parse format response:', error);
       return { suggestions: [], summary: '' };
     }
-  }
-
-  private previewSuggestion(suggestion: FormatSuggestion): void {
-    const modal = new DiffModal(
-      this.plugin.app,
-      suggestion.before,
-      suggestion.after,
-      suggestion.description,
-      () => this.applySuggestion(suggestion)
-    );
-    modal.open();
   }
 
   private async applySuggestion(suggestion: FormatSuggestion): Promise<void> {

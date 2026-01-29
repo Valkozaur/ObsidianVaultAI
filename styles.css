@@ -444,32 +444,173 @@
   font-style: italic;
 }
 
+.vault-ai-suggestion-description {
+  flex: 1;
+}
+
 .vault-ai-suggestion-actions {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+  justify-content: flex-end;
 }
 
-.vault-ai-preview-button,
+.vault-ai-decline-button,
+.vault-ai-accept-button,
 .vault-ai-apply-button,
 .vault-ai-execute-button {
-  padding: 4px 12px;
+  padding: 6px 16px;
   font-size: 12px;
+  font-weight: 500;
   border-radius: 4px;
   cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
 }
 
-.vault-ai-preview-button {
+.vault-ai-decline-button {
   background: var(--background-modifier-border);
-  border: none;
   color: var(--text-normal);
 }
 
+.vault-ai-decline-button:hover {
+  background: rgba(248, 81, 73, 0.2);
+  color: #f85149;
+}
+
+.vault-ai-accept-button,
 .vault-ai-apply-button,
 .vault-ai-execute-button {
   background: var(--interactive-accent);
-  border: none;
   color: var(--text-on-accent);
+}
+
+.vault-ai-accept-button:hover,
+.vault-ai-apply-button:hover,
+.vault-ai-execute-button:hover {
+  filter: brightness(1.1);
+}
+
+/* ============================================================================
+   Embedded Diff View
+   ============================================================================ */
+
+.vault-ai-embedded-diff {
+  margin-top: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.vault-ai-embedded-diff-content {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--background-primary);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line {
+  display: flex;
+  align-items: stretch;
+  min-height: 20px;
+  padding: 0;
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line .line-prefix {
+  width: 20px;
+  min-width: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  user-select: none;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line .line-content {
+  flex: 1;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Unchanged lines in embedded diff */
+.vault-ai-embedded-diff .vault-ai-diff-line.unchanged {
+  background: var(--background-primary);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.unchanged .line-content {
+  color: var(--text-muted);
+}
+
+/* Removed lines in embedded diff */
+.vault-ai-embedded-diff .vault-ai-diff-line.removed {
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.removed .line-prefix {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.2);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.removed .line-content {
+  color: var(--text-normal);
+}
+
+/* Added lines in embedded diff */
+.vault-ai-embedded-diff .vault-ai-diff-line.added {
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.added .line-prefix {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.2);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.added .line-content {
+  color: var(--text-normal);
+}
+
+/* Modified lines in embedded diff */
+.vault-ai-embedded-diff .vault-ai-diff-line.modified.removed {
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.modified.removed .line-prefix {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.2);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.modified.added {
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.vault-ai-embedded-diff .vault-ai-diff-line.modified.added .line-prefix {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.2);
+}
+
+/* Embedded diff scrollbar */
+.vault-ai-embedded-diff-content::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.vault-ai-embedded-diff-content::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+}
+
+.vault-ai-embedded-diff-content::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.vault-ai-embedded-diff-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
 }
 
 .vault-ai-apply-all-button,
