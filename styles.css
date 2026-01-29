@@ -1363,3 +1363,95 @@
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
 }
+
+/* ============================================================================
+   Agent Mode Styles
+   ============================================================================ */
+
+/* Actions performed section */
+.vault-ai-actions-performed {
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(63, 185, 80, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid #3fb950;
+}
+
+.vault-ai-actions-performed strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #3fb950;
+  font-size: 12px;
+}
+
+.vault-ai-actions-performed ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.vault-ai-action-item {
+  font-size: 12px;
+  color: var(--text-normal);
+  margin-bottom: 2px;
+}
+
+/* Agent steps */
+.vault-ai-agent-steps {
+  margin-top: 12px;
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+/* Tool call status */
+.tool-success {
+  color: #3fb950 !important;
+}
+
+.tool-failure {
+  color: #f85149 !important;
+}
+
+.tool-params {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  margin: 4px 0;
+  word-break: break-all;
+}
+
+.tool-result {
+  color: var(--text-normal);
+  font-size: 11px;
+  padding: 6px 8px;
+  background: var(--background-modifier-border);
+  border-radius: 4px;
+  margin-top: 4px;
+  font-family: var(--font-monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Settings agent info section */
+.vault-ai-agent-info {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.vault-ai-agent-info .vault-ai-info-header {
+  margin: 0 0 8px 0;
+  color: var(--text-muted);
+}
+
+.vault-ai-agent-info ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.vault-ai-agent-info li {
+  color: var(--text-normal);
+  margin-bottom: 4px;
+}
