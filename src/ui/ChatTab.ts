@@ -1,33 +1,149 @@
-import { MarkdownRenderer, Notice, TFile } from 'obsidian';
+import { MarkdownRenderer, Notice, TFile, setIcon, Menu } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import type { VaultAIView } from './SidebarView';
-import { ChatMessage, ContextScope, SearchStep } from '../types';
+import { ChatMessage, ContextScope, SearchStep, Conversation } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
-import { CHAT_SYSTEM_PROMPT } from '../prompts/chat';
 
 export class ChatTab {
   private plugin: VaultAIPlugin;
   private view: VaultAIView;
-  private messages: ChatMessage[] = [];
-  private currentScope: ContextScope;
   private containerEl: HTMLElement | null = null;
+  private historyListEl: HTMLElement | null = null;
   private messagesEl: HTMLElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
   private scopeDropdown: HTMLSelectElement | null = null;
   private isProcessing = false;
+  private currentConversationId: string | null = null;
 
   constructor(plugin: VaultAIPlugin, view: VaultAIView) {
     this.plugin = plugin;
     this.view = view;
-    this.currentScope = plugin.settings.defaultContextScope;
   }
 
   render(container: HTMLElement): void {
     this.containerEl = container;
     container.addClass('vault-ai-chat-tab');
 
+    // Main layout: history sidebar + chat area
+    const mainLayout = container.createDiv('vault-ai-chat-layout');
+
+    // History sidebar
+    const historySidebar = mainLayout.createDiv('vault-ai-history-sidebar');
+    this.renderHistorySidebar(historySidebar);
+
+    // Chat area
+    const chatArea = mainLayout.createDiv('vault-ai-chat-area');
+    this.renderChatArea(chatArea);
+
+    // Load active conversation or show empty state
+    this.loadActiveConversation();
+  }
+
+  private renderHistorySidebar(sidebar: HTMLElement): void {
+    // Header with "New Chat" button
+    const header = sidebar.createDiv('vault-ai-history-header');
+    header.createSpan({ text: 'Chat History', cls: 'vault-ai-history-title' });
+
+    const newChatBtn = header.createEl('button', {
+      cls: 'vault-ai-new-chat-btn',
+      attr: { 'aria-label': 'New Chat' },
+    });
+    setIcon(newChatBtn, 'plus');
+    newChatBtn.addEventListener('click', () => this.createNewConversation());
+
+    // Conversation list
+    this.historyListEl = sidebar.createDiv('vault-ai-history-list');
+    this.renderHistoryList();
+  }
+
+  private renderHistoryList(): void {
+    if (!this.historyListEl) return;
+    this.historyListEl.empty();
+
+    const conversations = this.plugin.chatHistory.getConversations();
+
+    if (conversations.length === 0) {
+      const emptyEl = this.historyListEl.createDiv('vault-ai-history-empty');
+      emptyEl.createSpan({ text: 'No conversations yet' });
+      return;
+    }
+
+    for (const conversation of conversations) {
+      this.renderHistoryItem(conversation);
+    }
+  }
+
+  private renderHistoryItem(conversation: Conversation): void {
+    if (!this.historyListEl) return;
+
+    const item = this.historyListEl.createDiv({
+      cls: `vault-ai-history-item ${conversation.id === this.currentConversationId ? 'active' : ''}`,
+    });
+
+    const titleEl = item.createDiv('vault-ai-history-item-title');
+    titleEl.setText(conversation.title);
+
+    const dateEl = item.createDiv('vault-ai-history-item-date');
+    dateEl.setText(this.formatDate(conversation.updatedAt));
+
+    // Click to select conversation
+    item.addEventListener('click', () => {
+      this.switchToConversation(conversation.id);
+    });
+
+    // Right-click context menu
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.showConversationMenu(e, conversation);
+    });
+  }
+
+  private showConversationMenu(e: MouseEvent, conversation: Conversation): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item.setTitle('Rename');
+      item.setIcon('pencil');
+      item.onClick(async () => {
+        const newTitle = prompt('Enter new title:', conversation.title);
+        if (newTitle !== null) {
+          await this.plugin.chatHistory.renameConversation(conversation.id, newTitle);
+          this.renderHistoryList();
+        }
+      });
+    });
+
+    menu.addItem((item) => {
+      item.setTitle('Open in new window');
+      item.setIcon('external-link');
+      item.onClick(() => {
+        this.plugin.openChatInNewWindow(conversation.id);
+      });
+    });
+
+    menu.addSeparator();
+
+    menu.addItem((item) => {
+      item.setTitle('Delete');
+      item.setIcon('trash-2');
+      item.onClick(async () => {
+        if (confirm('Delete this conversation?')) {
+          await this.plugin.chatHistory.deleteConversation(conversation.id);
+          if (this.currentConversationId === conversation.id) {
+            this.currentConversationId = null;
+            this.loadActiveConversation();
+          }
+          this.renderHistoryList();
+        }
+      });
+    });
+
+    menu.showAtMouseEvent(e);
+  }
+
+  private renderChatArea(chatArea: HTMLElement): void {
     // Context scope selector
-    const scopeContainer = container.createDiv('vault-ai-scope-container');
+    const scopeContainer = chatArea.createDiv('vault-ai-scope-container');
     scopeContainer.createSpan({ text: 'Context: ' });
 
     this.scopeDropdown = scopeContainer.createEl('select', {
@@ -46,21 +162,26 @@ export class ChatTab {
         text: scope.label,
         value: scope.value,
       });
-      if (scope.value === this.currentScope) {
+      if (scope.value === this.plugin.settings.defaultContextScope) {
         option.selected = true;
       }
     }
 
-    this.scopeDropdown.addEventListener('change', () => {
-      this.currentScope = this.scopeDropdown?.value as ContextScope;
+    this.scopeDropdown.addEventListener('change', async () => {
+      const scope = this.scopeDropdown?.value as ContextScope;
+      if (this.currentConversationId) {
+        await this.plugin.chatHistory.updateConversationScope(
+          this.currentConversationId,
+          scope
+        );
+      }
     });
 
     // Messages container
-    this.messagesEl = container.createDiv('vault-ai-messages');
-    this.renderMessages();
+    this.messagesEl = chatArea.createDiv('vault-ai-messages');
 
     // Input area
-    const inputContainer = container.createDiv('vault-ai-input-container');
+    const inputContainer = chatArea.createDiv('vault-ai-input-container');
 
     this.inputEl = inputContainer.createEl('textarea', {
       cls: 'vault-ai-input',
@@ -87,23 +208,75 @@ export class ChatTab {
     });
   }
 
+  private async loadActiveConversation(): Promise<void> {
+    const active = this.plugin.chatHistory.getActiveConversation();
+    if (active) {
+      this.currentConversationId = active.id;
+      if (this.scopeDropdown) {
+        this.scopeDropdown.value = active.contextScope;
+      }
+    } else {
+      this.currentConversationId = null;
+    }
+    this.renderMessages();
+    this.renderHistoryList();
+  }
+
+  private async switchToConversation(conversationId: string): Promise<void> {
+    this.currentConversationId = conversationId;
+    await this.plugin.chatHistory.setActiveConversation(conversationId);
+
+    const conversation = this.plugin.chatHistory.getConversation(conversationId);
+    if (conversation && this.scopeDropdown) {
+      this.scopeDropdown.value = conversation.contextScope;
+    }
+
+    this.renderMessages();
+    this.renderHistoryList();
+  }
+
+  private async createNewConversation(): Promise<void> {
+    const scope = (this.scopeDropdown?.value as ContextScope) || this.plugin.settings.defaultContextScope;
+    const conversation = await this.plugin.chatHistory.createConversation(scope);
+    this.currentConversationId = conversation.id;
+    this.renderMessages();
+    this.renderHistoryList();
+    this.inputEl?.focus();
+  }
+
+  private getCurrentMessages(): ChatMessage[] {
+    if (!this.currentConversationId) return [];
+    const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId);
+    return conversation?.messages || [];
+  }
+
   private renderMessages(): void {
     if (!this.messagesEl) return;
     this.messagesEl.empty();
 
-    if (this.messages.length === 0) {
+    const messages = this.getCurrentMessages();
+
+    if (messages.length === 0) {
       const emptyState = this.messagesEl.createDiv('vault-ai-empty-state');
       emptyState.createEl('p', {
-        text: 'Ask questions about your notes and I\'ll search through your vault to find answers.',
+        text: "Ask questions about your notes and I'll search through your vault to find answers.",
       });
       emptyState.createEl('p', {
         text: 'Try: "What have I written about project planning?" or "Summarize my notes on JavaScript"',
         cls: 'vault-ai-hint',
       });
+
+      if (!this.currentConversationId) {
+        const startBtn = emptyState.createEl('button', {
+          text: 'Start a new conversation',
+          cls: 'vault-ai-start-btn',
+        });
+        startBtn.addEventListener('click', () => this.createNewConversation());
+      }
       return;
     }
 
-    for (const message of this.messages) {
+    for (const message of messages) {
       this.renderMessage(message);
     }
 
@@ -213,40 +386,55 @@ export class ChatTab {
       return;
     }
 
+    // Create conversation if none exists
+    if (!this.currentConversationId) {
+      await this.createNewConversation();
+    }
+
     // Add user message
-    this.messages.push({
+    const userMsg: ChatMessage = {
       role: 'user',
       content: userMessage,
       timestamp: Date.now(),
-    });
+    };
+
+    await this.plugin.chatHistory.addMessage(this.currentConversationId!, userMsg);
 
     this.inputEl.value = '';
     this.renderMessages();
+    this.renderHistoryList(); // Update title if changed
 
     // Process with agentic search
     this.isProcessing = true;
     this.view.setConnectionStatus('thinking');
 
     try {
+      const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
+      const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
+
       const search = new AgenticSearch(this.plugin);
-      const result = await search.search(userMessage, this.currentScope);
+      const result = await search.search(userMessage, scope);
 
       // Add assistant message with results
-      this.messages.push({
+      const assistantMsg: ChatMessage = {
         role: 'assistant',
         content: result.answer,
         timestamp: Date.now(),
         sources: result.sources,
         searchSteps: result.steps,
-      });
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
     } catch (error) {
       console.error('Chat error:', error);
 
-      this.messages.push({
+      const errorMsg: ChatMessage = {
         role: 'assistant',
         content: `I encountered an error while searching: ${error}. Please try again.`,
         timestamp: Date.now(),
-      });
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
     } finally {
       this.isProcessing = false;
       this.view.setConnectionStatus('ready');
@@ -255,13 +443,37 @@ export class ChatTab {
   }
 
   setScope(scope: ContextScope): void {
-    this.currentScope = scope;
     if (this.scopeDropdown) {
       this.scopeDropdown.value = scope;
+    }
+    if (this.currentConversationId) {
+      this.plugin.chatHistory.updateConversationScope(this.currentConversationId, scope);
     }
   }
 
   focusInput(): void {
     this.inputEl?.focus();
+  }
+
+  private formatDate(timestamp: number): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (days === 0) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (days === 1) {
+      return 'Yesterday';
+    } else if (days < 7) {
+      return date.toLocaleDateString([], { weekday: 'short' });
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  }
+
+  // Load a specific conversation (used when opening from new window)
+  async loadConversation(conversationId: string): Promise<void> {
+    await this.switchToConversation(conversationId);
   }
 }

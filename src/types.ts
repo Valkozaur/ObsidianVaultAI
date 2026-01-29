@@ -51,6 +51,24 @@ export interface SearchStep {
   reasoning: string;
 }
 
+// ============================================================================
+// Chat History
+// ============================================================================
+
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  contextScope: ContextScope;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ChatHistory {
+  conversations: Conversation[];
+  activeConversationId: string | null;
+}
+
 export interface SearchResult {
   filePath: string;
   fileName: string;
