@@ -6,6 +6,13 @@ export type ServerType = 'ollama' | 'lmstudio';
 export type ContextScope = 'current' | 'linked' | 'folder' | 'vault';
 export type ConnectionStatus = 'ready' | 'thinking' | 'offline';
 
+// MCP Server configuration for settings
+export interface MCPServerConfig {
+  label: string;
+  url: string;
+  allowedTools?: string[];
+}
+
 export interface VaultAISettings {
   serverType: ServerType;
   serverUrl: string;
@@ -14,6 +21,12 @@ export interface VaultAISettings {
   maxSearchIterations: number;
   showThinkingProcess: boolean;
   enableAgentMode: boolean;
+  // LMStudio-specific settings
+  lmStudioContextLength: number;
+  lmStudioReasoning: 'off' | 'low' | 'medium' | 'high' | 'on' | 'auto';
+  // MCP integration settings
+  mcpServers: MCPServerConfig[];
+  mcpPlugins: string[]; // Plugin IDs for LM Studio's built-in MCP plugins
 }
 
 export const DEFAULT_SETTINGS: VaultAISettings = {
@@ -24,6 +37,12 @@ export const DEFAULT_SETTINGS: VaultAISettings = {
   maxSearchIterations: 5,
   showThinkingProcess: true,
   enableAgentMode: true,
+  // LMStudio defaults
+  lmStudioContextLength: 8000,
+  lmStudioReasoning: 'auto',
+  // MCP defaults
+  mcpServers: [],
+  mcpPlugins: [],
 };
 
 export const DEFAULT_URLS: Record<ServerType, string> = {
@@ -260,10 +279,38 @@ export type LMStudioInputItem =
   | { type: 'message'; content: string }
   | { type: 'image'; data_url: string };
 
+// MCP Integration Types
+export interface LMStudioPluginIntegration {
+  type: 'plugin';
+  id: string;
+  allowed_tools?: string[];
+}
+
+export interface LMStudioEphemeralMCPIntegration {
+  type: 'ephemeral_mcp';
+  server_label: string;
+  server_url: string;
+  allowed_tools?: string[];
+  headers?: Record<string, string>;
+}
+
+export type LMStudioIntegration =
+  | string // Shorthand for plugin id
+  | LMStudioPluginIntegration
+  | LMStudioEphemeralMCPIntegration;
+
+// Tool Provider Info
+export interface LMStudioToolProviderInfo {
+  type: 'plugin' | 'ephemeral_mcp';
+  plugin_id?: string;
+  server_label?: string;
+}
+
 export interface LMStudioChatRequest {
   model: string;
   input: string | LMStudioInputItem[];
   system_prompt?: string;
+  integrations?: LMStudioIntegration[];
   stream?: boolean;
   temperature?: number;
   top_p?: number;
@@ -277,14 +324,44 @@ export interface LMStudioChatRequest {
   previous_response_id?: string;
 }
 
-export interface LMStudioOutputItem {
-  type: 'message' | 'tool_call' | 'reasoning' | 'invalid_tool_call';
-  content?: string;
-  tool?: string;
-  arguments?: Record<string, unknown>;
-  output?: string;
-  reason?: string;
+// Output item for message
+export interface LMStudioMessageOutput {
+  type: 'message';
+  content: string;
 }
+
+// Output item for tool call
+export interface LMStudioToolCallOutput {
+  type: 'tool_call';
+  tool: string;
+  arguments: Record<string, unknown>;
+  output: string;
+  provider_info: LMStudioToolProviderInfo;
+}
+
+// Output item for reasoning
+export interface LMStudioReasoningOutput {
+  type: 'reasoning';
+  content: string;
+}
+
+// Output item for invalid tool call
+export interface LMStudioInvalidToolCallOutput {
+  type: 'invalid_tool_call';
+  reason: string;
+  metadata: {
+    type: 'invalid_name' | 'invalid_arguments';
+    tool_name: string;
+    arguments?: Record<string, unknown>;
+    provider_info?: LMStudioToolProviderInfo;
+  };
+}
+
+export type LMStudioOutputItem =
+  | LMStudioMessageOutput
+  | LMStudioToolCallOutput
+  | LMStudioReasoningOutput
+  | LMStudioInvalidToolCallOutput;
 
 export interface LMStudioChatStats {
   input_tokens: number;
@@ -316,6 +393,7 @@ export type LMStudioStreamEventType =
   | 'reasoning.end'
   | 'tool_call.start'
   | 'tool_call.arguments'
+  | 'tool_call.output'
   | 'tool_call.success'
   | 'tool_call.failure'
   | 'message.start'
@@ -324,16 +402,25 @@ export type LMStudioStreamEventType =
   | 'error'
   | 'chat.end';
 
+// Tool call info for streaming
+export interface LMStudioToolCallInfo {
+  tool: string;
+  arguments: Record<string, unknown>;
+  provider_info?: LMStudioToolProviderInfo;
+}
+
 export interface LMStudioStreamEvent {
   type: LMStudioStreamEventType;
   model_instance_id?: string;
   progress?: number;
   load_time_seconds?: number;
   content?: string;
+  // Tool call related fields
   tool?: string;
   arguments?: Record<string, unknown>;
   output?: string;
   reason?: string;
+  provider_info?: LMStudioToolProviderInfo;
   error?: {
     type: string;
     message: string;
@@ -353,6 +440,12 @@ export interface LMStudioStreamCallbacks {
   onMessageEnd?: () => void;
   onModelLoadProgress?: (progress: number) => void;
   onPromptProcessingProgress?: (progress: number) => void;
+  // Tool call callbacks
+  onToolCallStart?: (toolInfo: LMStudioToolCallInfo) => void;
+  onToolCallArguments?: (args: Record<string, unknown>) => void;
+  onToolCallOutput?: (output: string) => void;
+  onToolCallSuccess?: (result: LMStudioToolCallOutput) => void;
+  onToolCallFailure?: (reason: string, toolInfo?: LMStudioToolCallInfo) => void;
   onError?: (error: { type: string; message: string }) => void;
   onChatEnd?: (result: LMStudioNewChatResponse) => void;
 }

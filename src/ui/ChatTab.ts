@@ -1,7 +1,17 @@
 import { MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import type { VaultAIView } from './SidebarView';
-import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep } from '../types';
+import {
+  ChatMessage,
+  ContextScope,
+  SearchStep,
+  Conversation,
+  LMStudioStreamCallbacks,
+  AgentStep,
+  LMStudioToolCallOutput,
+  LMStudioToolCallInfo,
+  LMStudioIntegration,
+} from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
 import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
 import { ChatAgent } from '../agent/ChatAgent';
@@ -22,8 +32,11 @@ export class ChatTab {
   private streamingMessageEl: HTMLElement | null = null;
   private streamingContentEl: HTMLElement | null = null;
   private streamingReasoningEl: HTMLElement | null = null;
+  private streamingToolsEl: HTMLElement | null = null;
   private streamingContent = '';
   private streamingReasoning = '';
+  private streamingToolCalls: LMStudioToolCallOutput[] = [];
+  private currentToolCall: LMStudioToolCallInfo | null = null;
 
   constructor(plugin: VaultAIPlugin, view: VaultAIView) {
     this.plugin = plugin;
@@ -546,6 +559,8 @@ export class ChatTab {
 
     this.streamingContent = '';
     this.streamingReasoning = '';
+    this.streamingToolCalls = [];
+    this.currentToolCall = null;
 
     this.streamingMessageEl = this.messagesEl.createDiv(
       'vault-ai-message vault-ai-message-assistant vault-ai-message-streaming'
@@ -568,6 +583,12 @@ export class ChatTab {
 
       // Hide until we get reasoning content
       this.streamingReasoningEl.style.display = 'none';
+    }
+
+    // Create tools container (hidden initially)
+    if (this.plugin.settings.showThinkingProcess) {
+      this.streamingToolsEl = this.streamingMessageEl.createDiv('vault-ai-streaming-tools');
+      this.streamingToolsEl.style.display = 'none';
     }
 
     this.streamingContentEl = this.streamingMessageEl.createDiv('vault-ai-message-content');
@@ -621,6 +642,67 @@ export class ChatTab {
     }
   }
 
+  private updateStreamingToolCall(toolInfo: LMStudioToolCallInfo): void {
+    if (!this.streamingToolsEl || !this.plugin.settings.showThinkingProcess) return;
+
+    this.currentToolCall = toolInfo;
+
+    // Show tools container
+    this.streamingToolsEl.style.display = 'block';
+
+    // Add or update tool call indicator
+    const toolEl = this.streamingToolsEl.createDiv('vault-ai-streaming-tool-call');
+    const providerLabel = toolInfo.provider_info?.server_label || toolInfo.provider_info?.plugin_id || 'MCP';
+    toolEl.innerHTML = `<span class="tool-indicator">⚙️ Calling ${toolInfo.tool}</span> <span class="tool-provider">[${providerLabel}]</span>`;
+
+    if (this.messagesEl) {
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    }
+  }
+
+  private updateStreamingToolSuccess(result: LMStudioToolCallOutput): void {
+    if (!this.streamingToolsEl || !this.plugin.settings.showThinkingProcess) return;
+
+    this.streamingToolCalls.push(result);
+    this.currentToolCall = null;
+
+    // Update the last tool call indicator to show success
+    const toolEls = this.streamingToolsEl.querySelectorAll('.vault-ai-streaming-tool-call');
+    const lastToolEl = toolEls[toolEls.length - 1];
+    if (lastToolEl) {
+      lastToolEl.addClass('tool-success');
+      const indicator = lastToolEl.querySelector('.tool-indicator');
+      if (indicator) {
+        indicator.textContent = `✓ ${result.tool}`;
+      }
+    }
+
+    if (this.messagesEl) {
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    }
+  }
+
+  private updateStreamingToolFailure(reason: string): void {
+    if (!this.streamingToolsEl || !this.plugin.settings.showThinkingProcess) return;
+
+    this.currentToolCall = null;
+
+    // Update the last tool call indicator to show failure
+    const toolEls = this.streamingToolsEl.querySelectorAll('.vault-ai-streaming-tool-call');
+    const lastToolEl = toolEls[toolEls.length - 1];
+    if (lastToolEl) {
+      lastToolEl.addClass('tool-failure');
+      const indicator = lastToolEl.querySelector('.tool-indicator');
+      if (indicator) {
+        indicator.textContent = `✗ ${this.currentToolCall?.tool || 'Tool'} - ${reason}`;
+      }
+    }
+
+    if (this.messagesEl) {
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    }
+  }
+
   private finalizeStreamingMessage(): void {
     if (this.streamingMessageEl) {
       this.streamingMessageEl.removeClass('vault-ai-message-streaming');
@@ -639,11 +721,18 @@ export class ChatTab {
           expandIcon.textContent = '▶';
         }
       }
+
+      // Clear streaming tools container (will be replaced by proper agent steps rendering)
+      if (this.streamingToolsEl) {
+        this.streamingToolsEl.remove();
+      }
     }
 
     this.streamingMessageEl = null;
     this.streamingContentEl = null;
     this.streamingReasoningEl = null;
+    this.streamingToolsEl = null;
+    this.currentToolCall = null;
   }
 
   private renderAgentSteps(parent: HTMLElement, steps: AgentStep[]): void {
@@ -748,6 +837,7 @@ export class ChatTab {
     const lmClient = this.plugin.llmClient as LMStudioClient;
 
     // Get the previous response ID for conversation continuity
+    // LMStudio maintains the conversation state - we just track the response_id
     const previousResponseId = this.plugin.chatHistory.getLMStudioResponseId(
       this.currentConversationId!
     );
@@ -766,7 +856,7 @@ Be concise and helpful. When answering:
     const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
     const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
 
-    // Get vault context
+    // Get vault context (this provides local search results)
     const search = new AgenticSearch(this.plugin);
     const searchResult = await search.search(userMessage, scope);
 
@@ -784,11 +874,25 @@ ${searchResult.sources.map((s) => `Source: ${s}`).join('\n')}
 Please answer the question based on the information found.`;
     }
 
+    // Reset streaming tool calls
+    this.streamingToolCalls = [];
+
+    // Build MCP integrations from settings
+    const integrations = this.buildMCPIntegrations();
+
+    // Get reasoning setting
+    const reasoning = this.plugin.settings.lmStudioReasoning === 'auto'
+      ? undefined
+      : this.plugin.settings.lmStudioReasoning;
+
     try {
       const result = await lmClient.chatV1(input, {
         systemPrompt,
         previousResponseId,
-        store: true,
+        store: true, // Enable stateful chat in LMStudio
+        contextLength: this.plugin.settings.lmStudioContextLength,
+        reasoning,
+        integrations: integrations.length > 0 ? integrations : undefined,
         callbacks: {
           onMessageDelta: (content) => {
             this.updateStreamingContent(content);
@@ -802,9 +906,44 @@ Please answer the question based on the information found.`;
           onReasoningEnd: () => {
             console.log('[Vault AI] Reasoning ended');
           },
+          // Tool call event handlers
+          onToolCallStart: (toolInfo) => {
+            console.log('[Vault AI] Tool call started:', toolInfo.tool);
+            this.updateStreamingToolCall(toolInfo);
+          },
+          onToolCallArguments: (args) => {
+            console.log('[Vault AI] Tool call arguments:', args);
+          },
+          onToolCallOutput: (output) => {
+            console.log('[Vault AI] Tool call output:', output.slice(0, 100));
+          },
+          onToolCallSuccess: (toolResult) => {
+            console.log('[Vault AI] Tool call success:', toolResult.tool);
+            this.updateStreamingToolSuccess(toolResult);
+          },
+          onToolCallFailure: (reason, toolInfo) => {
+            console.error('[Vault AI] Tool call failed:', reason, toolInfo);
+            this.updateStreamingToolFailure(reason);
+          },
+          onModelLoadProgress: (progress) => {
+            console.log('[Vault AI] Model loading:', Math.round(progress * 100) + '%');
+          },
+          onPromptProcessingProgress: (progress) => {
+            console.log('[Vault AI] Processing prompt:', Math.round(progress * 100) + '%');
+          },
           onError: (error) => {
             console.error('[Vault AI] Stream error:', error);
             new Notice(`Error: ${error.message}`);
+          },
+          onChatEnd: (chatResult) => {
+            console.log('[Vault AI] Chat completed. Response ID:', chatResult.response_id);
+            if (chatResult.stats) {
+              console.log('[Vault AI] Stats:', {
+                inputTokens: chatResult.stats.input_tokens,
+                outputTokens: chatResult.stats.total_output_tokens,
+                tokensPerSecond: chatResult.stats.tokens_per_second?.toFixed(1),
+              });
+            }
           },
         },
       });
@@ -813,6 +952,7 @@ Please answer the question based on the information found.`;
       this.finalizeStreamingMessage();
 
       // Update the LMStudio response ID for conversation continuity
+      // This is the key to maintaining stateful sessions in LMStudio
       if (result.responseId) {
         await this.plugin.chatHistory.updateLMStudioResponseId(
           this.currentConversationId!,
@@ -820,7 +960,10 @@ Please answer the question based on the information found.`;
         );
       }
 
-      // Add assistant message with results
+      // Combine tool calls from result and streaming
+      const allToolCalls = result.toolCalls || this.streamingToolCalls;
+
+      // Add assistant message with results using the new method that handles tool calls
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         content: result.content,
@@ -830,7 +973,11 @@ Please answer the question based on the information found.`;
         reasoning: result.reasoning,
       };
 
-      await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
+      await this.plugin.chatHistory.addMessageWithToolCalls(
+        this.currentConversationId!,
+        assistantMsg,
+        allToolCalls
+      );
     } catch (error) {
       console.error('LMStudio chat error:', error);
       this.finalizeStreamingMessage();
@@ -974,5 +1121,34 @@ Please answer the question based on the information found.`;
   // Load a specific conversation (used when opening from new window)
   async loadConversation(conversationId: string): Promise<void> {
     await this.switchToConversation(conversationId);
+  }
+
+  /**
+   * Build MCP integrations array from plugin settings.
+   * This includes both LM Studio plugins and external ephemeral MCP servers.
+   */
+  private buildMCPIntegrations(): LMStudioIntegration[] {
+    const integrations: LMStudioIntegration[] = [];
+
+    // Add LM Studio MCP plugins (shorthand string format)
+    for (const pluginId of this.plugin.settings.mcpPlugins) {
+      if (pluginId) {
+        integrations.push(pluginId);
+      }
+    }
+
+    // Add external MCP servers as ephemeral MCPs
+    for (const server of this.plugin.settings.mcpServers) {
+      if (server.label && server.url) {
+        integrations.push({
+          type: 'ephemeral_mcp',
+          server_label: server.label,
+          server_url: server.url,
+          allowed_tools: server.allowedTools,
+        });
+      }
+    }
+
+    return integrations;
   }
 }
