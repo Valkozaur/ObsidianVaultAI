@@ -355,7 +355,117 @@ export interface LMStudioStreamCallbacks {
   onPromptProcessingProgress?: (progress: number) => void;
   onError?: (error: { type: string; message: string }) => void;
   onChatEnd?: (result: LMStudioNewChatResponse) => void;
+  // Tool calling callbacks
+  onToolCallStart?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolCallEnd?: (toolName: string, result: string, success: boolean) => void;
 }
+
+// ============================================================================
+// OpenAI-style Tool Calling Types (for /v1/chat/completions)
+// ============================================================================
+
+export interface OpenAIFunctionDefinition {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, {
+      type: string;
+      description: string;
+      enum?: string[];
+    }>;
+    required?: string[];
+  };
+}
+
+export interface OpenAITool {
+  type: 'function';
+  function: OpenAIFunctionDefinition;
+}
+
+export interface OpenAIChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface OpenAIToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+export interface OpenAIChatCompletionRequest {
+  model: string;
+  messages: OpenAIChatMessage[];
+  tools?: OpenAITool[];
+  tool_choice?: 'none' | 'auto' | { type: 'function'; function: { name: string } };
+  stream?: boolean;
+  temperature?: number;
+  max_tokens?: number;
+}
+
+export interface OpenAIChatCompletionResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    message: {
+      role: 'assistant';
+      content: string | null;
+      tool_calls?: OpenAIToolCall[];
+    };
+    finish_reason: 'stop' | 'tool_calls' | 'length';
+  }[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+export interface OpenAIChatCompletionChunk {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: {
+    index: number;
+    delta: {
+      role?: 'assistant';
+      content?: string | null;
+      tool_calls?: {
+        index: number;
+        id?: string;
+        type?: 'function';
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }[];
+    };
+    finish_reason: 'stop' | 'tool_calls' | 'length' | null;
+  }[];
+}
+
+// Tool execution types
+export interface ToolExecutionResult {
+  success: boolean;
+  result: string;
+  data?: unknown;
+}
+
+export type ToolExecutor = (
+  toolName: string,
+  args: Record<string, unknown>
+) => Promise<ToolExecutionResult>;
 
 // ============================================================================
 // UI

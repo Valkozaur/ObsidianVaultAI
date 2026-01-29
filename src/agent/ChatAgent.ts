@@ -2,7 +2,15 @@ import { App, TFile, TFolder, Notice } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import { VaultSearch } from '../search/VaultSearch';
 import { FileOperations } from '../operations/FileOperations';
-import { LLMMessage, ContextScope, FormatSuggestion, FileOperation } from '../types';
+import {
+  LLMMessage,
+  ContextScope,
+  FormatSuggestion,
+  FileOperation,
+  OpenAITool,
+  ToolExecutionResult,
+  ToolExecutor,
+} from '../types';
 import { AGENT_SYSTEM_PROMPT } from '../prompts/agent';
 import { FORMAT_SYSTEM_PROMPT, buildFormatPrompt } from '../prompts/format';
 import { STRUCTURE_SYSTEM_PROMPT, buildStructurePrompt } from '../prompts/structure';
@@ -135,6 +143,59 @@ export const AVAILABLE_TOOLS: Tool[] = [
   },
 ];
 
+/**
+ * Convert internal tool definitions to OpenAI function calling format
+ */
+export function convertToolsToOpenAI(tools: Tool[]): OpenAITool[] {
+  return tools.map((tool) => {
+    const properties: Record<string, { type: string; description: string }> = {};
+    const required: string[] = [];
+
+    for (const param of tool.parameters) {
+      // Map our types to JSON Schema types
+      let jsonType = param.type;
+      if (param.type === 'array') {
+        jsonType = 'array';
+      } else if (param.type === 'boolean') {
+        jsonType = 'boolean';
+      } else if (param.type === 'number') {
+        jsonType = 'number';
+      } else {
+        jsonType = 'string';
+      }
+
+      properties[param.name] = {
+        type: jsonType,
+        description: param.description,
+      };
+
+      if (param.required) {
+        required.push(param.name);
+      }
+    }
+
+    return {
+      type: 'function' as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: {
+          type: 'object' as const,
+          properties,
+          required: required.length > 0 ? required : undefined,
+        },
+      },
+    };
+  });
+}
+
+/**
+ * Get the OpenAI-formatted tools for LMStudio tool calling
+ */
+export function getOpenAITools(): OpenAITool[] {
+  return convertToolsToOpenAI(AVAILABLE_TOOLS);
+}
+
 export class ChatAgent {
   private plugin: VaultAIPlugin;
   private app: App;
@@ -148,6 +209,35 @@ export class ChatAgent {
     this.vaultSearch = new VaultSearch(plugin.app);
     this.fileOperations = new FileOperations(plugin.app);
     this.maxIterations = plugin.settings.maxSearchIterations || 5;
+  }
+
+  /**
+   * Create a tool executor function for use with LMStudio tool calling.
+   * This allows the LMStudio client to execute tools defined in this agent.
+   */
+  createToolExecutor(): ToolExecutor {
+    return async (toolName: string, args: Record<string, unknown>): Promise<ToolExecutionResult> => {
+      const toolCall: ToolCall = {
+        tool: toolName,
+        params: args as Record<string, any>,
+      };
+      return this.executeTool(toolCall);
+    };
+  }
+
+  /**
+   * Execute a single tool by name with given arguments.
+   * This is a public method for direct tool execution.
+   */
+  async executeToolByName(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<ToolExecutionResult> {
+    const toolCall: ToolCall = {
+      tool: toolName,
+      params: args as Record<string, any>,
+    };
+    return this.executeTool(toolCall);
   }
 
   async execute(

@@ -1,9 +1,9 @@
 import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip } from 'obsidian';
 import type VaultAIPlugin from '../main';
-import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep } from '../types';
+import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep, ToolExecutionResult } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
-import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
-import { ChatAgent } from '../agent/ChatAgent';
+import { LMStudioClient, LMStudioChatResult, LMStudioToolChatResult } from '../llm/LMStudioClient';
+import { ChatAgent, getOpenAITools } from '../agent/ChatAgent';
 
 export const VIEW_TYPE_CHAT_WINDOW = 'vault-ai-chat-window';
 
@@ -700,6 +700,174 @@ export class ChatWindowView extends ItemView {
   private async sendMessageLMStudio(userMessage: string): Promise<void> {
     const lmClient = this.plugin.llmClient as LMStudioClient;
 
+    // Get conversation context
+    const conversation = this.getConversation();
+    const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
+
+    // Check if we should use agent mode with tools
+    const useAgentMode = this.plugin.settings.enableAgentMode;
+
+    if (useAgentMode) {
+      await this.sendMessageLMStudioWithTools(userMessage, lmClient, scope);
+    } else {
+      await this.sendMessageLMStudioSimple(userMessage, lmClient, scope);
+    }
+  }
+
+  /**
+   * Send message to LMStudio with tool calling support (agent mode)
+   */
+  private async sendMessageLMStudioWithTools(
+    userMessage: string,
+    lmClient: LMStudioClient,
+    scope: ContextScope
+  ): Promise<void> {
+    // Create streaming message UI
+    this.createStreamingMessage();
+
+    // Create the agent and tool executor
+    const agent = new ChatAgent(this.plugin);
+    const toolExecutor = agent.createToolExecutor();
+
+    // Get OpenAI-formatted tools
+    const tools = getOpenAITools();
+
+    const systemPrompt = `You are a helpful assistant that helps users manage their Obsidian vault.
+You have access to tools that allow you to search, read, create, and modify notes in the vault.
+
+Available tools:
+- search_vault: Search for notes containing specific terms
+- read_note: Read the full content of a note
+- create_note: Create a new note in the vault
+- append_to_note: Add content to an existing note
+- list_folder: List files and subfolders
+- format_note: Analyze and apply formatting improvements
+- suggest_restructure: Analyze vault structure and suggest improvements
+- rename_file: Rename a file
+- rename_folder: Rename a folder
+- move_file: Move a file to a different folder
+- final_answer: Provide your final response to the user
+
+When you have completed the task or gathered enough information, use the final_answer tool to provide your response.
+Be helpful, concise, and always explain what actions you're taking.`;
+
+    const allToolCalls: Array<{
+      name: string;
+      args: Record<string, unknown>;
+      result: ToolExecutionResult;
+    }> = [];
+
+    try {
+      const result = await lmClient.chatWithTools(userMessage, {
+        systemPrompt,
+        tools,
+        toolExecutor,
+        maxToolIterations: this.plugin.settings.maxSearchIterations || 5,
+        temperature: 0.7,
+        callbacks: {
+          onMessageDelta: (content) => {
+            this.updateStreamingContent(content);
+          },
+          onToolCallStart: (toolName, args) => {
+            console.log(`[Vault AI] Tool call started: ${toolName}`, args);
+            // Update UI to show tool is being called
+            this.updateStreamingContent(`\n\n*Calling tool: ${toolName}...*\n\n`);
+          },
+          onToolCallEnd: (toolName, resultText, success) => {
+            console.log(`[Vault AI] Tool call ended: ${toolName}`, { success });
+            allToolCalls.push({
+              name: toolName,
+              args: {},
+              result: { success, result: resultText },
+            });
+          },
+          onError: (error) => {
+            console.error('[Vault AI] Stream error:', error);
+            new Notice(`Error: ${error.message}`);
+          },
+        },
+      });
+
+      // Finalize the streaming message
+      this.finalizeStreamingMessage();
+
+      // Check if the result came from a final_answer tool call
+      let finalContent = result.content;
+      let sources: string[] = [];
+      const actionsPerformed: string[] = [];
+
+      // Process tool calls to extract final answer and actions
+      for (const tc of result.toolCalls) {
+        if (tc.name === 'final_answer') {
+          finalContent = (tc.args.answer as string) || finalContent;
+          sources = (tc.args.sources as string[]) || [];
+        } else if (tc.result.success) {
+          // Track actions for non-final_answer tools
+          if (tc.name === 'create_note') {
+            actionsPerformed.push(`Created note: ${tc.args.folder}/${tc.args.name}.md`);
+          } else if (tc.name === 'append_to_note') {
+            actionsPerformed.push(`Appended content to: ${tc.args.path}`);
+          } else if (tc.name === 'rename_file') {
+            actionsPerformed.push(`Renamed file: ${tc.args.path} → ${tc.args.newName}`);
+          } else if (tc.name === 'rename_folder') {
+            actionsPerformed.push(`Renamed folder: ${tc.args.path} → ${tc.args.newName}`);
+          } else if (tc.name === 'move_file') {
+            actionsPerformed.push(`Moved file: ${tc.args.sourcePath} → ${tc.args.targetFolder}`);
+          }
+        }
+      }
+
+      // Convert tool calls to agent steps for display
+      const agentSteps: AgentStep[] = result.toolCalls.map((tc) => ({
+        type: 'tool_call' as const,
+        toolCall: {
+          tool: tc.name,
+          params: tc.args as Record<string, any>,
+        },
+        toolResult: {
+          success: tc.result.success,
+          result: tc.result.result,
+          data: tc.result.data,
+        },
+      }));
+
+      // Add assistant message with results
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: finalContent,
+        timestamp: Date.now(),
+        sources,
+        agentSteps,
+        actionsPerformed,
+      };
+
+      await this.plugin.chatHistory.addMessage(this.conversationId!, assistantMsg);
+    } catch (error) {
+      console.error('LMStudio tool chat error:', error);
+      this.finalizeStreamingMessage();
+
+      const errorMsg: ChatMessage = {
+        role: 'assistant',
+        content: `I encountered an error: ${error}. Please try again.`,
+        timestamp: Date.now(),
+      };
+
+      await this.plugin.chatHistory.addMessage(this.conversationId!, errorMsg);
+    } finally {
+      this.isProcessing = false;
+      this.plugin.setConnectionStatus('ready');
+      this.renderMessages();
+    }
+  }
+
+  /**
+   * Send message to LMStudio without tools (simple mode)
+   */
+  private async sendMessageLMStudioSimple(
+    userMessage: string,
+    lmClient: LMStudioClient,
+    scope: ContextScope
+  ): Promise<void> {
     // Get the previous response ID for conversation continuity
     const previousResponseId = this.plugin.chatHistory.getLMStudioResponseId(
       this.conversationId!
@@ -714,10 +882,6 @@ Be concise and helpful. When answering:
 - Mention which notes contain the relevant information
 - If the notes don't contain enough information to fully answer, say so
 - Do not make up information that isn't in the notes`;
-
-    // Build context from vault search
-    const conversation = this.getConversation();
-    const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
 
     // Get vault context
     const search = new AgenticSearch(this.plugin);
