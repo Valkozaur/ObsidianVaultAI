@@ -5,24 +5,34 @@ import { LLMClient } from './llm/LLMClient';
 import { OllamaClient } from './llm/OllamaClient';
 import { LMStudioClient } from './llm/LMStudioClient';
 import { VaultAIView, VIEW_TYPE_VAULT_AI } from './ui/SidebarView';
+import { ChatWindowView, VIEW_TYPE_CHAT_WINDOW } from './ui/ChatWindowView';
 import { UndoStack } from './operations/UndoStack';
+import { ChatHistoryManager } from './chat/ChatHistoryManager';
 
 export default class VaultAIPlugin extends Plugin {
   settings: VaultAISettings = DEFAULT_SETTINGS;
   llmClient: LLMClient | null = null;
   undoStack: UndoStack = new UndoStack();
   connectionStatus: ConnectionStatus = 'offline';
+  chatHistory: ChatHistoryManager = null!;
 
   private statusBarItem: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
+    // Initialize chat history manager
+    this.chatHistory = new ChatHistoryManager(this);
+    await this.chatHistory.load();
+
     // Initialize LLM client
     this.initializeLLMClient();
 
     // Register the sidebar view
     this.registerView(VIEW_TYPE_VAULT_AI, (leaf) => new VaultAIView(leaf, this));
+
+    // Register the chat window view
+    this.registerView(VIEW_TYPE_CHAT_WINDOW, (leaf) => new ChatWindowView(leaf, this));
 
     // Add ribbon icon
     this.addRibbonIcon('brain', 'Open Vault AI', () => {
@@ -74,6 +84,22 @@ export default class VaultAIPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: 'new-chat',
+      name: 'Start new chat',
+      callback: async () => {
+        await this.startNewChat();
+      },
+    });
+
+    this.addCommand({
+      id: 'open-chat-window',
+      name: 'Open chat in new window',
+      callback: async () => {
+        await this.openChatInNewWindow();
+      },
+    });
+
     // Add settings tab
     this.addSettingTab(new VaultAISettingTab(this.app, this));
 
@@ -83,6 +109,7 @@ export default class VaultAIPlugin extends Plugin {
 
   onunload(): void {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_VAULT_AI);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT_WINDOW);
   }
 
   async loadSettings(): Promise<void> {
@@ -166,6 +193,13 @@ export default class VaultAIPlugin extends Plugin {
       const view = leaf.view as VaultAIView;
       view.updateConnectionStatus();
     }
+
+    // Also update chat window views
+    const chatLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT_WINDOW);
+    for (const leaf of chatLeaves) {
+      const view = leaf.view as ChatWindowView;
+      view.updateConnectionStatus();
+    }
   }
 
   async activateView(
@@ -197,5 +231,39 @@ export default class VaultAIPlugin extends Plugin {
         view.setContextScope(scope);
       }
     }
+  }
+
+  async startNewChat(): Promise<void> {
+    // Create a new conversation and open the sidebar
+    const conversation = await this.chatHistory.createConversation(
+      this.settings.defaultContextScope
+    );
+    await this.activateView('chat');
+  }
+
+  async openChatInNewWindow(conversationId?: string): Promise<void> {
+    const { workspace } = this.app;
+
+    // If no conversation ID provided, create a new one
+    let convId = conversationId;
+    if (!convId) {
+      const conversation = await this.chatHistory.createConversation(
+        this.settings.defaultContextScope
+      );
+      convId = conversation.id;
+    }
+
+    // Open in a new leaf (pane)
+    const leaf = workspace.getLeaf('tab');
+    await leaf.setViewState({
+      type: VIEW_TYPE_CHAT_WINDOW,
+      active: true,
+    });
+
+    // Set the conversation ID on the view
+    const view = leaf.view as ChatWindowView;
+    view.setConversationId(convId);
+
+    workspace.revealLeaf(leaf);
   }
 }
