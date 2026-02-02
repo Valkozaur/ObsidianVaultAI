@@ -5,6 +5,8 @@
 export type ContextScope = 'current' | 'linked' | 'folder' | 'vault';
 export type ConnectionStatus = 'ready' | 'thinking' | 'offline';
 
+export type ReasoningLevel = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'on';
+
 export interface VaultAISettings {
   serverUrl: string;
   selectedModel: string;
@@ -12,6 +14,7 @@ export interface VaultAISettings {
   mcpEnabled: boolean;
   mcpPort: number;
   systemPrompt: string;
+  reasoning: ReasoningLevel;
 }
 
 export const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant with access to the user's Obsidian vault through MCP tools.
@@ -30,6 +33,7 @@ export const DEFAULT_SETTINGS: VaultAISettings = {
   mcpEnabled: true,
   mcpPort: 3456,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  reasoning: 'auto',
 };
 
 // ============================================================================

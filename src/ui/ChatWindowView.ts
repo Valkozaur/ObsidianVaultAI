@@ -1,6 +1,6 @@
 import { ItemView, WorkspaceLeaf, MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip } from 'obsidian';
 import type VaultAIPlugin from '../main';
-import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep } from '../types';
+import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep, ReasoningLevel } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
 import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
 import { ChatAgent } from '../agent/ChatAgent';
@@ -14,6 +14,7 @@ export class ChatWindowView extends ItemView {
   private inputEl: HTMLTextAreaElement | null = null;
   private scopeDropdown: HTMLSelectElement | null = null;
   private modelDropdown: HTMLSelectElement | null = null;
+  private reasoningDropdown: HTMLSelectElement | null = null;
   private statusEl: HTMLElement | null = null;
   private isProcessing = false;
 
@@ -110,6 +111,24 @@ export class ChatWindowView extends ItemView {
       const model = this.modelDropdown?.value;
       if (model) {
         await this.plugin.setSelectedModel(model);
+      }
+    });
+
+    // Reasoning selector
+    const reasoningContainer = controlsContainer.createDiv('vault-ai-reasoning-container');
+    reasoningContainer.createSpan({ text: 'Reasoning: ' });
+
+    this.reasoningDropdown = reasoningContainer.createEl('select', {
+      cls: 'vault-ai-reasoning-dropdown',
+    });
+
+    this.populateReasoningDropdown();
+
+    this.reasoningDropdown.addEventListener('change', async () => {
+      const reasoning = this.reasoningDropdown?.value as ReasoningLevel;
+      if (reasoning) {
+        this.plugin.settings.reasoning = reasoning;
+        await this.plugin.saveSettings();
       }
     });
 
@@ -241,6 +260,35 @@ export class ChatWindowView extends ItemView {
 
   refreshModelDropdown(): void {
     this.populateModelDropdown();
+  }
+
+  private populateReasoningDropdown(): void {
+    if (!this.reasoningDropdown) return;
+
+    this.reasoningDropdown.empty();
+
+    const reasoningOptions: { value: ReasoningLevel; label: string }[] = [
+      { value: 'auto', label: 'Auto' },
+      { value: 'off', label: 'Off' },
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'on', label: 'On' },
+    ];
+
+    for (const option of reasoningOptions) {
+      const optionEl = this.reasoningDropdown.createEl('option', {
+        text: option.label,
+        value: option.value,
+      });
+      if (option.value === this.plugin.settings.reasoning) {
+        optionEl.selected = true;
+      }
+    }
+  }
+
+  refreshReasoningDropdown(): void {
+    this.populateReasoningDropdown();
   }
 
   private renderMessages(): void {
@@ -741,11 +789,17 @@ ${searchResult.sources.map((s) => `Source: ${s}`).join('\n')}
 Please answer the question based on the information found.`;
     }
 
+    // Get reasoning setting (only pass if not 'auto')
+    const reasoning = this.plugin.settings.reasoning !== 'auto'
+      ? this.plugin.settings.reasoning as 'off' | 'low' | 'medium' | 'high' | 'on'
+      : undefined;
+
     try {
       const result = await lmClient.chatV1(input, {
         systemPrompt,
         previousResponseId,
         store: true,
+        reasoning,
         callbacks: {
           onMessageDelta: (content) => {
             this.updateStreamingContent(content);
