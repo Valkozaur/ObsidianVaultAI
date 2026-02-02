@@ -716,12 +716,8 @@ Be concise and helpful. When answering:
 - Do not make up information that isn't in the notes`;
 
     // Build context from vault search
-    const conversation = this.getConversation();
-    const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
-
-    // Get vault context
     const search = new AgenticSearch(this.plugin);
-    const searchResult = await search.search(userMessage, scope);
+    const searchResult = await search.search(userMessage, 'vault');
 
     // Build input with context
     let input = userMessage;
@@ -804,37 +800,18 @@ Please answer the question based on the information found.`;
 
   private async sendMessageLegacy(userMessage: string): Promise<void> {
     try {
-      const conversation = this.getConversation();
-      const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
+      // Use the ChatAgent with tool capabilities
+      const agent = new ChatAgent(this.plugin);
+      const result = await agent.execute(userMessage, 'vault');
 
-      let assistantMsg: ChatMessage;
-
-      if (this.plugin.settings.enableAgentMode) {
-        // Use the new ChatAgent with tool capabilities
-        const agent = new ChatAgent(this.plugin);
-        const result = await agent.execute(userMessage, scope);
-
-        assistantMsg = {
-          role: 'assistant',
-          content: result.answer,
-          timestamp: Date.now(),
-          sources: result.sources,
-          agentSteps: result.steps,
-          actionsPerformed: result.actionsPerformed,
-        };
-      } else {
-        // Use the original agentic search (read-only)
-        const search = new AgenticSearch(this.plugin);
-        const result = await search.search(userMessage, scope);
-
-        assistantMsg = {
-          role: 'assistant',
-          content: result.answer,
-          timestamp: Date.now(),
-          sources: result.sources,
-          searchSteps: result.steps,
-        };
-      }
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: result.answer,
+        timestamp: Date.now(),
+        sources: result.sources,
+        agentSteps: result.steps,
+        actionsPerformed: result.actionsPerformed,
+      };
 
       await this.plugin.chatHistory.addMessage(this.conversationId!, assistantMsg);
     } catch (error) {

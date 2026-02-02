@@ -5,6 +5,7 @@ import {
   LMStudioNewChatResponse,
   LMStudioStreamEvent,
   LMStudioStreamCallbacks,
+  LMStudioMCPIntegration,
 } from '../types';
 
 export interface LMStudioChatOptions {
@@ -13,6 +14,7 @@ export interface LMStudioChatOptions {
   temperature?: number;
   store?: boolean;
   callbacks?: LMStudioStreamCallbacks;
+  mcpServerUrl?: string;
 }
 
 export interface LMStudioChatResult {
@@ -20,6 +22,15 @@ export interface LMStudioChatResult {
   reasoning?: string;
   responseId?: string;
   stats?: LMStudioNewChatResponse['stats'];
+  toolCalls?: ToolCallResult[];
+}
+
+export interface ToolCallResult {
+  tool: string;
+  arguments: Record<string, unknown>;
+  output?: string;
+  success: boolean;
+  error?: string;
 }
 
 export class LMStudioClient extends LLMClient {
@@ -86,6 +97,7 @@ export class LMStudioClient extends LLMClient {
       temperature = 0.7,
       store = true,
       callbacks,
+      mcpServerUrl,
     } = options;
 
     const requestBody: LMStudioChatRequest = {
@@ -104,6 +116,17 @@ export class LMStudioClient extends LLMClient {
       requestBody.previous_response_id = previousResponseId;
     }
 
+    // Add MCP integration if provided
+    if (mcpServerUrl) {
+      requestBody.integrations = [
+        {
+          type: 'ephemeral_mcp',
+          server_label: 'vault-ai-mcp',
+          server_url: mcpServerUrl,
+        },
+      ];
+    }
+
     console.log('[Vault AI] LMStudio chatV1 request:', {
       ...requestBody,
       input: input.slice(0, 100) + '...',
@@ -114,6 +137,21 @@ export class LMStudioClient extends LLMClient {
     } else {
       return this.chatV1NonStreaming(requestBody);
     }
+  }
+
+  /**
+   * Chat with MCP integration enabled
+   * This method automatically includes the MCP server URL for tool execution
+   */
+  async chatWithMCP(
+    input: string,
+    mcpServerUrl: string,
+    options: Omit<LMStudioChatOptions, 'mcpServerUrl'> = {}
+  ): Promise<LMStudioChatResult> {
+    return this.chatV1(input, {
+      ...options,
+      mcpServerUrl,
+    });
   }
 
   /**
@@ -131,12 +169,27 @@ export class LMStudioClient extends LLMClient {
 
       let content = '';
       let reasoning = '';
+      const toolCalls: ToolCallResult[] = [];
 
       for (const item of response.output) {
         if (item.type === 'message' && item.content) {
           content += item.content;
         } else if (item.type === 'reasoning' && item.content) {
           reasoning += item.content;
+        } else if (item.type === 'tool_call') {
+          toolCalls.push({
+            tool: item.tool || 'unknown',
+            arguments: item.arguments || {},
+            output: item.output,
+            success: true,
+          });
+        } else if (item.type === 'invalid_tool_call') {
+          toolCalls.push({
+            tool: item.tool || 'unknown',
+            arguments: item.arguments || {},
+            success: false,
+            error: item.reason,
+          });
         }
       }
 
@@ -145,6 +198,7 @@ export class LMStudioClient extends LLMClient {
         reasoning: reasoning || undefined,
         responseId: response.response_id,
         stats: response.stats,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
       console.error('LM Studio chatV1 error:', error);
@@ -189,6 +243,8 @@ export class LMStudioClient extends LLMClient {
       let responseId: string | undefined;
       let stats: LMStudioNewChatResponse['stats'] | undefined;
       let buffer = '';
+      const toolCalls: ToolCallResult[] = [];
+      let currentToolCall: Partial<ToolCallResult> | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -220,6 +276,9 @@ export class LMStudioClient extends LLMClient {
                   addReasoning: (r) => (reasoning += r),
                   setResponseId: (id) => (responseId = id),
                   setStats: (s) => (stats = s),
+                  getCurrentToolCall: () => currentToolCall,
+                  setCurrentToolCall: (tc) => (currentToolCall = tc),
+                  addToolCall: (tc) => toolCalls.push(tc as ToolCallResult),
                 });
               } catch (e) {
                 console.warn('[Vault AI] Failed to parse SSE event:', eventData, e);
@@ -241,6 +300,7 @@ export class LMStudioClient extends LLMClient {
         reasoning: reasoning || undefined,
         responseId,
         stats,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
       console.error('LM Studio streaming error:', error);
@@ -263,6 +323,9 @@ export class LMStudioClient extends LLMClient {
       addReasoning: (r: string) => void;
       setResponseId: (id: string) => void;
       setStats: (s: LMStudioNewChatResponse['stats']) => void;
+      getCurrentToolCall: () => Partial<ToolCallResult> | null;
+      setCurrentToolCall: (tc: Partial<ToolCallResult> | null) => void;
+      addToolCall: (tc: ToolCallResult) => void;
     }
   ): void {
     switch (event.type) {
@@ -294,6 +357,47 @@ export class LMStudioClient extends LLMClient {
 
       case 'reasoning.end':
         callbacks.onReasoningEnd?.();
+        break;
+
+      case 'tool_call.start':
+        if (event.tool) {
+          state.setCurrentToolCall({
+            tool: event.tool,
+            arguments: {},
+            success: false,
+          });
+          callbacks.onToolCallStart?.(event.tool);
+        }
+        break;
+
+      case 'tool_call.arguments':
+        const currentTc = state.getCurrentToolCall();
+        if (currentTc && event.arguments) {
+          currentTc.arguments = event.arguments;
+          callbacks.onToolCallArguments?.(currentTc.tool || '', event.arguments);
+        }
+        break;
+
+      case 'tool_call.success':
+        const successTc = state.getCurrentToolCall();
+        if (successTc) {
+          successTc.success = true;
+          successTc.output = event.output;
+          state.addToolCall(successTc as ToolCallResult);
+          callbacks.onToolCallSuccess?.(successTc.tool || '', event.output || '');
+          state.setCurrentToolCall(null);
+        }
+        break;
+
+      case 'tool_call.failure':
+        const failTc = state.getCurrentToolCall();
+        if (failTc) {
+          failTc.success = false;
+          failTc.error = event.reason;
+          state.addToolCall(failTc as ToolCallResult);
+          callbacks.onToolCallFailure?.(failTc.tool || '', event.reason || '');
+          state.setCurrentToolCall(null);
+        }
         break;
 
       case 'model_load.progress':

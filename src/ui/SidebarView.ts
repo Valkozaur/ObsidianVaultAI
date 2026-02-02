@@ -1,6 +1,5 @@
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import type VaultAIPlugin from '../main';
-import { ContextScope } from '../types';
 import { ChatTab } from './ChatTab';
 
 export const VIEW_TYPE_VAULT_AI = 'vault-ai-view';
@@ -70,10 +69,6 @@ export class VaultAIView extends ItemView {
 
   setConnectionStatus(status: 'ready' | 'thinking' | 'offline'): void {
     this.plugin.setConnectionStatus(status);
-  }
-
-  setContextScope(scope: ContextScope): void {
-    this.chatTab?.setScope(scope);
   }
 
   getCurrentFile(): string | null {

@@ -1,7 +1,7 @@
 import { MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import type { VaultAIView } from './SidebarView';
-import { ChatMessage, ContextScope, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep } from '../types';
+import { ChatMessage, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep, ToolCallInfo } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
 import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
 import { ChatAgent } from '../agent/ChatAgent';
@@ -13,7 +13,6 @@ export class ChatTab {
   private historyListEl: HTMLElement | null = null;
   private messagesEl: HTMLElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
-  private scopeDropdown: HTMLSelectElement | null = null;
   private modelDropdown: HTMLSelectElement | null = null;
   private isProcessing = false;
   private currentConversationId: string | null = null;
@@ -22,8 +21,10 @@ export class ChatTab {
   private streamingMessageEl: HTMLElement | null = null;
   private streamingContentEl: HTMLElement | null = null;
   private streamingReasoningEl: HTMLElement | null = null;
+  private streamingToolCallsEl: HTMLElement | null = null;
   private streamingContent = '';
   private streamingReasoning = '';
+  private streamingToolCalls: ToolCallInfo[] = [];
 
   constructor(plugin: VaultAIPlugin, view: VaultAIView) {
     this.plugin = plugin;
@@ -152,43 +153,8 @@ export class ChatTab {
   }
 
   private renderChatArea(chatArea: HTMLElement): void {
-    // Controls container for scope and model selectors
+    // Controls container for model selector
     const controlsContainer = chatArea.createDiv('vault-ai-controls-container');
-
-    // Context scope selector
-    const scopeContainer = controlsContainer.createDiv('vault-ai-scope-container');
-    scopeContainer.createSpan({ text: 'Context: ' });
-
-    this.scopeDropdown = scopeContainer.createEl('select', {
-      cls: 'vault-ai-scope-dropdown',
-    });
-
-    const scopes: { value: ContextScope; label: string }[] = [
-      { value: 'current', label: 'Current Note' },
-      { value: 'linked', label: 'Linked Notes' },
-      { value: 'folder', label: 'Current Folder' },
-      { value: 'vault', label: 'Entire Vault' },
-    ];
-
-    for (const scope of scopes) {
-      const option = this.scopeDropdown.createEl('option', {
-        text: scope.label,
-        value: scope.value,
-      });
-      if (scope.value === this.plugin.settings.defaultContextScope) {
-        option.selected = true;
-      }
-    }
-
-    this.scopeDropdown.addEventListener('change', async () => {
-      const scope = this.scopeDropdown?.value as ContextScope;
-      if (this.currentConversationId) {
-        await this.plugin.chatHistory.updateConversationScope(
-          this.currentConversationId,
-          scope
-        );
-      }
-    });
 
     // Model selector
     const modelContainer = controlsContainer.createDiv('vault-ai-model-container');
@@ -242,9 +208,6 @@ export class ChatTab {
     const active = this.plugin.chatHistory.getActiveConversation();
     if (active) {
       this.currentConversationId = active.id;
-      if (this.scopeDropdown) {
-        this.scopeDropdown.value = active.contextScope;
-      }
     } else {
       this.currentConversationId = null;
     }
@@ -255,19 +218,12 @@ export class ChatTab {
   private async switchToConversation(conversationId: string): Promise<void> {
     this.currentConversationId = conversationId;
     await this.plugin.chatHistory.setActiveConversation(conversationId);
-
-    const conversation = this.plugin.chatHistory.getConversation(conversationId);
-    if (conversation && this.scopeDropdown) {
-      this.scopeDropdown.value = conversation.contextScope;
-    }
-
     this.renderMessages();
     this.renderHistoryList();
   }
 
   private async createNewConversation(): Promise<void> {
-    const scope = (this.scopeDropdown?.value as ContextScope) || this.plugin.settings.defaultContextScope;
-    const conversation = await this.plugin.chatHistory.createConversation(scope);
+    const conversation = await this.plugin.chatHistory.createConversation('vault');
     this.currentConversationId = conversation.id;
     this.renderMessages();
     this.renderHistoryList();
@@ -353,6 +309,15 @@ export class ChatTab {
       message.reasoning
     ) {
       this.renderReasoningContent(messageEl, message.reasoning);
+    }
+
+    // Render tool calls if present
+    if (
+      this.plugin.settings.showThinkingProcess &&
+      message.toolCalls &&
+      message.toolCalls.length > 0
+    ) {
+      this.renderToolCalls(messageEl, message.toolCalls);
     }
 
     const contentEl = messageEl.createDiv('vault-ai-message-content');
@@ -443,6 +408,54 @@ export class ChatTab {
       content.style.display = isExpanded ? 'none' : 'block';
       expandIcon.textContent = isExpanded ? '▶' : '▼';
     });
+  }
+
+  private renderToolCalls(parent: HTMLElement, toolCalls: ToolCallInfo[]): void {
+    const toolsEl = parent.createDiv('vault-ai-tool-calls');
+
+    const header = toolsEl.createDiv('vault-ai-thinking-header');
+    header.createSpan({ text: `Tool calls (${toolCalls.length})` });
+
+    const expandIcon = header.createSpan({ text: '▶', cls: 'expand-icon' });
+    const content = toolsEl.createDiv('vault-ai-thinking-content');
+    content.style.display = 'none';
+
+    header.addEventListener('click', () => {
+      const isExpanded = content.style.display !== 'none';
+      content.style.display = isExpanded ? 'none' : 'block';
+      expandIcon.textContent = isExpanded ? '▶' : '▼';
+    });
+
+    for (const tc of toolCalls) {
+      const tcEl = content.createDiv('vault-ai-tool-call-item');
+
+      const statusIcon = tc.status === 'success' ? '✓' : tc.status === 'failure' ? '✗' : '⋯';
+      const statusClass = tc.status === 'success' ? 'tool-success' : tc.status === 'failure' ? 'tool-failure' : 'tool-pending';
+
+      tcEl.createEl('strong', {
+        text: `${statusIcon} ${tc.tool}`,
+        cls: statusClass,
+      });
+
+      // Show arguments
+      const argsStr = Object.entries(tc.arguments)
+        .map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 50) : JSON.stringify(v).slice(0, 50)}`)
+        .join(', ');
+      if (argsStr) {
+        tcEl.createEl('p', { text: argsStr, cls: 'tool-params' });
+      }
+
+      // Show result or error
+      if (tc.result) {
+        tcEl.createEl('p', {
+          text: tc.result.slice(0, 150) + (tc.result.length > 150 ? '...' : ''),
+          cls: 'tool-result',
+        });
+      }
+      if (tc.error) {
+        tcEl.createEl('p', { text: `Error: ${tc.error}`, cls: 'tool-error' });
+      }
+    }
   }
 
   private renderThinkingProcess(parent: HTMLElement, steps: SearchStep[]): void {
@@ -546,6 +559,7 @@ export class ChatTab {
 
     this.streamingContent = '';
     this.streamingReasoning = '';
+    this.streamingToolCalls = [];
 
     this.streamingMessageEl = this.messagesEl.createDiv(
       'vault-ai-message vault-ai-message-assistant vault-ai-message-streaming'
@@ -568,6 +582,10 @@ export class ChatTab {
 
       // Hide until we get reasoning content
       this.streamingReasoningEl.style.display = 'none';
+
+      // Create tool calls container (hidden initially)
+      this.streamingToolCallsEl = this.streamingMessageEl.createDiv('vault-ai-tool-calls');
+      this.streamingToolCallsEl.style.display = 'none';
     }
 
     this.streamingContentEl = this.streamingMessageEl.createDiv('vault-ai-message-content');
@@ -621,6 +639,80 @@ export class ChatTab {
     }
   }
 
+  private updateStreamingToolCall(tool: string, status: 'pending' | 'running' | 'success' | 'failure', args?: Record<string, unknown>, result?: string, error?: string): void {
+    if (!this.streamingToolCallsEl || !this.plugin.settings.showThinkingProcess) return;
+
+    // Find existing tool call or create new one
+    let tcInfo = this.streamingToolCalls.find(tc => tc.tool === tool && tc.status === 'running');
+
+    if (!tcInfo) {
+      tcInfo = {
+        tool,
+        arguments: args || {},
+        status: 'running',
+      };
+      this.streamingToolCalls.push(tcInfo);
+    }
+
+    // Update the tool call info
+    if (args) tcInfo.arguments = args;
+    tcInfo.status = status;
+    if (result) tcInfo.result = result;
+    if (error) tcInfo.error = error;
+
+    // Show the container
+    this.streamingToolCallsEl.style.display = 'block';
+
+    // Re-render tool calls
+    this.streamingToolCallsEl.empty();
+
+    const header = this.streamingToolCallsEl.createDiv('vault-ai-thinking-header');
+    header.createSpan({ text: `Tool calls (${this.streamingToolCalls.length})` });
+
+    const expandIcon = header.createSpan({ text: '▼', cls: 'expand-icon' });
+    const content = this.streamingToolCallsEl.createDiv('vault-ai-thinking-content');
+    content.style.display = 'block'; // Show while streaming
+
+    header.addEventListener('click', () => {
+      const isExpanded = content.style.display !== 'none';
+      content.style.display = isExpanded ? 'none' : 'block';
+      expandIcon.textContent = isExpanded ? '▶' : '▼';
+    });
+
+    for (const tc of this.streamingToolCalls) {
+      const tcEl = content.createDiv('vault-ai-tool-call-item');
+
+      const statusIcon = tc.status === 'success' ? '✓' : tc.status === 'failure' ? '✗' : '⋯';
+      const statusClass = tc.status === 'success' ? 'tool-success' : tc.status === 'failure' ? 'tool-failure' : 'tool-pending';
+
+      tcEl.createEl('strong', {
+        text: `${statusIcon} ${tc.tool}`,
+        cls: statusClass,
+      });
+
+      const argsStr = Object.entries(tc.arguments)
+        .map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 50) : JSON.stringify(v).slice(0, 50)}`)
+        .join(', ');
+      if (argsStr) {
+        tcEl.createEl('p', { text: argsStr, cls: 'tool-params' });
+      }
+
+      if (tc.result) {
+        tcEl.createEl('p', {
+          text: tc.result.slice(0, 150) + (tc.result.length > 150 ? '...' : ''),
+          cls: 'tool-result',
+        });
+      }
+      if (tc.error) {
+        tcEl.createEl('p', { text: `Error: ${tc.error}`, cls: 'tool-error' });
+      }
+    }
+
+    if (this.messagesEl) {
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    }
+  }
+
   private finalizeStreamingMessage(): void {
     if (this.streamingMessageEl) {
       this.streamingMessageEl.removeClass('vault-ai-message-streaming');
@@ -639,11 +731,22 @@ export class ChatTab {
           expandIcon.textContent = '▶';
         }
       }
+
+      // Collapse tool calls after streaming completes
+      if (this.streamingToolCallsEl) {
+        const toolContent = this.streamingToolCallsEl.querySelector('.vault-ai-thinking-content') as HTMLElement;
+        const expandIcon = this.streamingToolCallsEl.querySelector('.expand-icon');
+        if (toolContent && expandIcon) {
+          toolContent.style.display = 'none';
+          expandIcon.textContent = '▶';
+        }
+      }
     }
 
     this.streamingMessageEl = null;
     this.streamingContentEl = null;
     this.streamingReasoningEl = null;
+    this.streamingToolCallsEl = null;
   }
 
   private renderAgentSteps(parent: HTMLElement, steps: AgentStep[]): void {
@@ -734,13 +837,115 @@ export class ChatTab {
     this.isProcessing = true;
     this.view.setConnectionStatus('thinking');
 
-    // Check if using LMStudio with new API
-    const isLMStudio = this.plugin.settings.serverType === 'lmstudio';
+    // Check if MCP is enabled and server is running
+    const mcpUrl = this.plugin.getMCPServerUrl();
 
-    if (isLMStudio) {
-      await this.sendMessageLMStudio(userMessage);
+    if (mcpUrl && this.plugin.settings.mcpEnabled) {
+      await this.sendMessageWithMCP(userMessage, mcpUrl);
     } else {
-      await this.sendMessageLegacy(userMessage);
+      await this.sendMessageLMStudio(userMessage);
+    }
+  }
+
+  private async sendMessageWithMCP(userMessage: string, mcpUrl: string): Promise<void> {
+    const lmClient = this.plugin.llmClient as LMStudioClient;
+
+    // Get the previous response ID for conversation continuity
+    const previousResponseId = this.plugin.chatHistory.getLMStudioResponseId(
+      this.currentConversationId!
+    );
+
+    // Create streaming message UI
+    this.createStreamingMessage();
+
+    const systemPrompt = this.plugin.settings.systemPrompt;
+
+    try {
+      const result = await lmClient.chatWithMCP(userMessage, mcpUrl, {
+        systemPrompt,
+        previousResponseId,
+        store: true,
+        callbacks: {
+          onMessageDelta: (content) => {
+            this.updateStreamingContent(content);
+          },
+          onReasoningDelta: (content) => {
+            this.updateStreamingReasoning(content);
+          },
+          onReasoningStart: () => {
+            console.log('[Vault AI] Reasoning started');
+          },
+          onReasoningEnd: () => {
+            console.log('[Vault AI] Reasoning ended');
+          },
+          onToolCallStart: (tool) => {
+            console.log('[Vault AI] Tool call started:', tool);
+            this.updateStreamingToolCall(tool, 'running');
+          },
+          onToolCallArguments: (tool, args) => {
+            console.log('[Vault AI] Tool call arguments:', tool, args);
+            this.updateStreamingToolCall(tool, 'running', args);
+          },
+          onToolCallSuccess: (tool, output) => {
+            console.log('[Vault AI] Tool call success:', tool);
+            this.updateStreamingToolCall(tool, 'success', undefined, output);
+          },
+          onToolCallFailure: (tool, reason) => {
+            console.log('[Vault AI] Tool call failure:', tool, reason);
+            this.updateStreamingToolCall(tool, 'failure', undefined, undefined, reason);
+          },
+          onError: (error) => {
+            console.error('[Vault AI] Stream error:', error);
+            new Notice(`Error: ${error.message}`);
+          },
+        },
+      });
+
+      // Finalize the streaming message
+      this.finalizeStreamingMessage();
+
+      // Update the LMStudio response ID for conversation continuity
+      if (result.responseId) {
+        await this.plugin.chatHistory.updateLMStudioResponseId(
+          this.currentConversationId!,
+          result.responseId
+        );
+      }
+
+      // Convert tool calls to ToolCallInfo format
+      const toolCallInfos: ToolCallInfo[] = result.toolCalls?.map(tc => ({
+        tool: tc.tool,
+        arguments: tc.arguments,
+        status: tc.success ? 'success' as const : 'failure' as const,
+        result: tc.output,
+        error: tc.error,
+      })) || [];
+
+      // Add assistant message with results
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: result.content,
+        timestamp: Date.now(),
+        reasoning: result.reasoning,
+        toolCalls: toolCallInfos.length > 0 ? toolCallInfos : undefined,
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
+    } catch (error) {
+      console.error('MCP chat error:', error);
+      this.finalizeStreamingMessage();
+
+      const errorMsg: ChatMessage = {
+        role: 'assistant',
+        content: `I encountered an error: ${error}. Please try again.`,
+        timestamp: Date.now(),
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
+    } finally {
+      this.isProcessing = false;
+      this.view.setConnectionStatus('ready');
+      this.renderMessages();
     }
   }
 
@@ -763,12 +968,8 @@ Be concise and helpful. When answering:
 - Do not make up information that isn't in the notes`;
 
     // Build context from vault search
-    const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
-    const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
-
-    // Get vault context
     const search = new AgenticSearch(this.plugin);
-    const searchResult = await search.search(userMessage, scope);
+    const searchResult = await search.search(userMessage, 'vault');
 
     // Build input with context
     let input = userMessage;
@@ -846,67 +1047,6 @@ Please answer the question based on the information found.`;
       this.isProcessing = false;
       this.view.setConnectionStatus('ready');
       this.renderMessages();
-    }
-  }
-
-  private async sendMessageLegacy(userMessage: string): Promise<void> {
-    try {
-      const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
-      const scope = conversation?.contextScope || this.plugin.settings.defaultContextScope;
-
-      let assistantMsg: ChatMessage;
-
-      if (this.plugin.settings.enableAgentMode) {
-        // Use the new ChatAgent with tool capabilities
-        const agent = new ChatAgent(this.plugin);
-        const result = await agent.execute(userMessage, scope);
-
-        assistantMsg = {
-          role: 'assistant',
-          content: result.answer,
-          timestamp: Date.now(),
-          sources: result.sources,
-          agentSteps: result.steps,
-          actionsPerformed: result.actionsPerformed,
-        };
-      } else {
-        // Use the original agentic search (read-only)
-        const search = new AgenticSearch(this.plugin);
-        const result = await search.search(userMessage, scope);
-
-        assistantMsg = {
-          role: 'assistant',
-          content: result.answer,
-          timestamp: Date.now(),
-          sources: result.sources,
-          searchSteps: result.steps,
-        };
-      }
-
-      await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
-    } catch (error) {
-      console.error('Chat error:', error);
-
-      const errorMsg: ChatMessage = {
-        role: 'assistant',
-        content: `I encountered an error: ${error}. Please try again.`,
-        timestamp: Date.now(),
-      };
-
-      await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
-    } finally {
-      this.isProcessing = false;
-      this.view.setConnectionStatus('ready');
-      this.renderMessages();
-    }
-  }
-
-  setScope(scope: ContextScope): void {
-    if (this.scopeDropdown) {
-      this.scopeDropdown.value = scope;
-    }
-    if (this.currentConversationId) {
-      this.plugin.chatHistory.updateConversationScope(this.currentConversationId, scope);
     }
   }
 

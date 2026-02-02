@@ -2,33 +2,34 @@
 // Settings
 // ============================================================================
 
-export type ServerType = 'ollama' | 'lmstudio';
 export type ContextScope = 'current' | 'linked' | 'folder' | 'vault';
 export type ConnectionStatus = 'ready' | 'thinking' | 'offline';
 
 export interface VaultAISettings {
-  serverType: ServerType;
   serverUrl: string;
   selectedModel: string;
-  defaultContextScope: ContextScope;
-  maxSearchIterations: number;
   showThinkingProcess: boolean;
-  enableAgentMode: boolean;
+  mcpEnabled: boolean;
+  mcpPort: number;
+  systemPrompt: string;
 }
 
-export const DEFAULT_SETTINGS: VaultAISettings = {
-  serverType: 'ollama',
-  serverUrl: 'http://localhost:11434',
-  selectedModel: '',
-  defaultContextScope: 'current',
-  maxSearchIterations: 5,
-  showThinkingProcess: true,
-  enableAgentMode: true,
-};
+export const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant with access to the user's Obsidian vault through MCP tools.
+You can search, read, create, edit, and manage notes in their vault.
 
-export const DEFAULT_URLS: Record<ServerType, string> = {
-  ollama: 'http://localhost:11434',
-  lmstudio: 'http://localhost:1234',
+When helping the user:
+- Be concise and direct in your responses
+- Use the available tools to interact with their vault when needed
+- Mention which notes you found or modified
+- If you can't find relevant information, say so honestly`;
+
+export const DEFAULT_SETTINGS: VaultAISettings = {
+  serverUrl: 'http://localhost:1234',
+  selectedModel: '',
+  showThinkingProcess: true,
+  mcpEnabled: true,
+  mcpPort: 3456,
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
 };
 
 // ============================================================================
@@ -46,6 +47,15 @@ export interface ChatMessage {
   reasoning?: string;
   agentSteps?: AgentStep[];
   actionsPerformed?: string[];
+  toolCalls?: ToolCallInfo[];
+}
+
+export interface ToolCallInfo {
+  tool: string;
+  arguments: Record<string, unknown>;
+  status: 'pending' | 'running' | 'success' | 'failure';
+  result?: string;
+  error?: string;
 }
 
 export interface AgentStep {
@@ -201,26 +211,6 @@ export interface LLMMessage {
   content: string;
 }
 
-export interface OllamaTagsResponse {
-  models: OllamaModel[];
-}
-
-export interface OllamaModel {
-  name: string;
-  modified_at: string;
-  size: number;
-}
-
-export interface OllamaChatResponse {
-  model: string;
-  created_at: string;
-  message: {
-    role: string;
-    content: string;
-  };
-  done: boolean;
-}
-
 export interface LMStudioModelsResponse {
   object: string;
   data: LMStudioModel[];
@@ -260,6 +250,12 @@ export type LMStudioInputItem =
   | { type: 'message'; content: string }
   | { type: 'image'; data_url: string };
 
+export interface LMStudioMCPIntegration {
+  type: 'ephemeral_mcp';
+  server_label: string;
+  server_url: string;
+}
+
 export interface LMStudioChatRequest {
   model: string;
   input: string | LMStudioInputItem[];
@@ -275,6 +271,7 @@ export interface LMStudioChatRequest {
   context_length?: number;
   store?: boolean;
   previous_response_id?: string;
+  integrations?: LMStudioMCPIntegration[];
 }
 
 export interface LMStudioOutputItem {
@@ -353,6 +350,10 @@ export interface LMStudioStreamCallbacks {
   onMessageEnd?: () => void;
   onModelLoadProgress?: (progress: number) => void;
   onPromptProcessingProgress?: (progress: number) => void;
+  onToolCallStart?: (tool: string) => void;
+  onToolCallArguments?: (tool: string, args: Record<string, unknown>) => void;
+  onToolCallSuccess?: (tool: string, output: string) => void;
+  onToolCallFailure?: (tool: string, reason: string) => void;
   onError?: (error: { type: string; message: string }) => void;
   onChatEnd?: (result: LMStudioNewChatResponse) => void;
 }

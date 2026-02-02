@@ -2,12 +2,12 @@ import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { VaultAISettings, DEFAULT_SETTINGS, ConnectionStatus } from './types';
 import { VaultAISettingTab } from './settings';
 import { LLMClient } from './llm/LLMClient';
-import { OllamaClient } from './llm/OllamaClient';
 import { LMStudioClient } from './llm/LMStudioClient';
 import { VaultAIView, VIEW_TYPE_VAULT_AI } from './ui/SidebarView';
 import { ChatWindowView, VIEW_TYPE_CHAT_WINDOW } from './ui/ChatWindowView';
 import { UndoStack } from './operations/UndoStack';
 import { ChatHistoryManager } from './chat/ChatHistoryManager';
+import { MCPServer } from './mcp';
 
 export default class VaultAIPlugin extends Plugin {
   settings: VaultAISettings = DEFAULT_SETTINGS;
@@ -16,6 +16,7 @@ export default class VaultAIPlugin extends Plugin {
   connectionStatus: ConnectionStatus = 'offline';
   chatHistory: ChatHistoryManager = null!;
   availableModels: string[] = [];
+  mcpServer: MCPServer | null = null;
 
   private statusBarItem: HTMLElement | null = null;
 
@@ -28,6 +29,11 @@ export default class VaultAIPlugin extends Plugin {
 
     // Initialize LLM client
     this.initializeLLMClient();
+
+    // Start MCP server if enabled
+    if (this.settings.mcpEnabled) {
+      await this.startMCPServer();
+    }
 
     // Register the sidebar view
     this.registerView(VIEW_TYPE_VAULT_AI, (leaf) => new VaultAIView(leaf, this));
@@ -55,9 +61,9 @@ export default class VaultAIPlugin extends Plugin {
 
     this.addCommand({
       id: 'ask-current',
-      name: 'Ask about current note',
+      name: 'Ask about vault',
       callback: () => {
-        this.activateView('chat', 'current');
+        this.activateView('chat');
       },
     });
 
@@ -108,7 +114,10 @@ export default class VaultAIPlugin extends Plugin {
     this.checkConnection();
   }
 
-  onunload(): void {
+  async onunload(): Promise<void> {
+    // Stop MCP server
+    await this.stopMCPServer();
+
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_VAULT_AI);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_CHAT_WINDOW);
   }
@@ -124,17 +133,41 @@ export default class VaultAIPlugin extends Plugin {
   }
 
   initializeLLMClient(): void {
-    if (this.settings.serverType === 'ollama') {
-      this.llmClient = new OllamaClient(
-        this.settings.serverUrl,
-        this.settings.selectedModel
-      );
-    } else {
-      this.llmClient = new LMStudioClient(
-        this.settings.serverUrl,
-        this.settings.selectedModel
-      );
+    this.llmClient = new LMStudioClient(
+      this.settings.serverUrl,
+      this.settings.selectedModel
+    );
+  }
+
+  async startMCPServer(): Promise<void> {
+    if (this.mcpServer?.isRunning()) {
+      console.log('[Vault AI] MCP server already running');
+      return;
     }
+
+    try {
+      this.mcpServer = new MCPServer(this, this.settings.mcpPort);
+      await this.mcpServer.start();
+      console.log(`[Vault AI] MCP server started on port ${this.settings.mcpPort}`);
+    } catch (error) {
+      console.error('[Vault AI] Failed to start MCP server:', error);
+      this.mcpServer = null;
+    }
+  }
+
+  async stopMCPServer(): Promise<void> {
+    if (this.mcpServer) {
+      await this.mcpServer.stop();
+      this.mcpServer = null;
+      console.log('[Vault AI] MCP server stopped');
+    }
+  }
+
+  getMCPServerUrl(): string | undefined {
+    if (this.mcpServer?.isRunning()) {
+      return this.mcpServer.getUrl();
+    }
+    return undefined;
   }
 
   async checkConnection(): Promise<void> {
@@ -240,10 +273,7 @@ export default class VaultAIPlugin extends Plugin {
     }
   }
 
-  async activateView(
-    tab?: 'chat' | 'format' | 'structure',
-    scope?: 'current' | 'linked' | 'folder' | 'vault'
-  ): Promise<void> {
+  async activateView(tab?: 'chat' | 'format' | 'structure'): Promise<void> {
     const { workspace } = this.app;
 
     let leaf: WorkspaceLeaf | null = null;
@@ -265,17 +295,12 @@ export default class VaultAIPlugin extends Plugin {
       if (tab) {
         view.switchTab(tab);
       }
-      if (scope && tab === 'chat') {
-        view.setContextScope(scope);
-      }
     }
   }
 
   async startNewChat(): Promise<void> {
     // Create a new conversation and open the sidebar
-    const conversation = await this.chatHistory.createConversation(
-      this.settings.defaultContextScope
-    );
+    await this.chatHistory.createConversation('vault');
     await this.activateView('chat');
   }
 
@@ -285,9 +310,7 @@ export default class VaultAIPlugin extends Plugin {
     // If no conversation ID provided, create a new one
     let convId = conversationId;
     if (!convId) {
-      const conversation = await this.chatHistory.createConversation(
-        this.settings.defaultContextScope
-      );
+      const conversation = await this.chatHistory.createConversation('vault');
       convId = conversation.id;
     }
 
