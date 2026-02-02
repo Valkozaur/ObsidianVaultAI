@@ -365,7 +365,8 @@
 }
 
 .vault-ai-scope-container,
-.vault-ai-model-container {
+.vault-ai-model-container,
+.vault-ai-reasoning-container {
   display: flex;
   align-items: center;
   gap: var(--vai-space-2);
@@ -374,7 +375,8 @@
 }
 
 .vault-ai-scope-dropdown,
-.vault-ai-model-dropdown {
+.vault-ai-model-dropdown,
+.vault-ai-reasoning-dropdown {
   padding: 6px 10px;
   border-radius: var(--vai-radius-sm);
   border: 1px solid var(--background-modifier-border);
@@ -390,8 +392,14 @@
   max-width: 220px;
 }
 
+.vault-ai-reasoning-dropdown {
+  min-width: 80px;
+  max-width: 120px;
+}
+
 .vault-ai-scope-dropdown:focus,
-.vault-ai-model-dropdown:focus {
+.vault-ai-model-dropdown:focus,
+.vault-ai-reasoning-dropdown:focus {
   outline: none;
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 3px var(--vai-accent-soft);

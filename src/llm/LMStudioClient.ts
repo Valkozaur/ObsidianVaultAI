@@ -15,6 +15,7 @@ export interface LMStudioChatOptions {
   store?: boolean;
   callbacks?: LMStudioStreamCallbacks;
   mcpServerUrl?: string;
+  reasoning?: 'off' | 'low' | 'medium' | 'high' | 'on';
 }
 
 export interface LMStudioChatResult {
@@ -98,6 +99,7 @@ export class LMStudioClient extends LLMClient {
       store = true,
       callbacks,
       mcpServerUrl,
+      reasoning,
     } = options;
 
     const requestBody: LMStudioChatRequest = {
@@ -114,6 +116,11 @@ export class LMStudioClient extends LLMClient {
 
     if (previousResponseId) {
       requestBody.previous_response_id = previousResponseId;
+    }
+
+    // Add reasoning setting if provided
+    if (reasoning) {
+      requestBody.reasoning = reasoning;
     }
 
     // Add MCP integration if provided
