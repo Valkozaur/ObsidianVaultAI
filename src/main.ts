@@ -197,9 +197,10 @@ export default class VaultAIPlugin extends Plugin {
       return [];
     }
 
+    const lmClient = this.llmClient as LMStudioClient;
+
+    // Try the new API first for full model info
     try {
-      // Load full model info using the new API
-      const lmClient = this.llmClient as LMStudioClient;
       this.availableModelsInfo = await lmClient.listModelsV1();
 
       // Filter to only LLM models and extract keys for backwards compatibility
@@ -213,6 +214,22 @@ export default class VaultAIPlugin extends Plugin {
         const selectedModel = loadedModel?.key || this.availableModels[0];
         this.settings.selectedModel = selectedModel;
         this.llmClient.setModel(selectedModel);
+        await this.saveData(this.settings);
+      }
+
+      return this.availableModels;
+    } catch (error) {
+      console.error('[Vault AI] New API failed, falling back to legacy:', error);
+    }
+
+    // Fallback to legacy API if new API fails
+    try {
+      this.availableModels = await lmClient.listModels();
+      this.availableModelsInfo = []; // No detailed info available with legacy API
+
+      if (!this.settings.selectedModel && this.availableModels.length > 0) {
+        this.settings.selectedModel = this.availableModels[0];
+        this.llmClient.setModel(this.availableModels[0]);
         await this.saveData(this.settings);
       }
 

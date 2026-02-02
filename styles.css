@@ -2394,6 +2394,44 @@
   color: var(--vai-error);
 }
 
+/* Legacy API fallback styles */
+.vault-ai-model-legacy-notice {
+  padding: var(--vai-space-4);
+}
+
+.vault-ai-model-legacy-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: var(--vai-space-3) 0 var(--vai-space-2) 0;
+}
+
+.vault-ai-model-legacy-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vault-ai-model-legacy-list li {
+  padding: var(--vai-space-2) var(--vai-space-3);
+  margin-bottom: var(--vai-space-1);
+  border-radius: var(--vai-radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-normal);
+  transition: all var(--vai-timing-fast) var(--vai-easing);
+}
+
+.vault-ai-model-legacy-list li:hover {
+  background: var(--background-modifier-hover);
+}
+
+.vault-ai-model-legacy-list li.selected {
+  background: var(--vai-accent-soft);
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
 /* Model list scrollbar */
 .vault-ai-model-list::-webkit-scrollbar {
   width: 6px;
