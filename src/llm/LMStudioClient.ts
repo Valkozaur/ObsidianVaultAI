@@ -235,7 +235,27 @@ export class LMStudioClient extends LLMClient {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
+        // Try to extract the actual error message from the response body
+        let errorMessage = `HTTP error: ${response.status}`;
+        try {
+          const errorBody = await response.json();
+          console.error('[Vault AI] Streaming error response:', errorBody);
+          if (errorBody?.error?.message) {
+            errorMessage = errorBody.error.message;
+          }
+        } catch {
+          // If JSON parsing fails, try to get text
+          try {
+            const errorText = await response.text();
+            console.error('[Vault AI] Streaming error response text:', errorText);
+            if (errorText.length > 0) {
+              errorMessage = errorText;
+            }
+          } catch {
+            // Ignore text parsing errors
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       if (!response.body) {

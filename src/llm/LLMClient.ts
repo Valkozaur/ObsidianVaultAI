@@ -48,8 +48,26 @@ export abstract class LLMClient {
       console.log('[Vault AI] Response headers:', response.headers);
 
       if (response.status >= 400) {
-        console.error(`[Vault AI] HTTP error: ${response.status}`, response.text);
-        throw new Error(`HTTP error: ${response.status}`);
+        console.error(`[Vault AI] HTTP error: ${response.status}`);
+        console.error(`[Vault AI] Error response body:`, response.text);
+
+        // Try to extract the actual error message from the response
+        let errorMessage = `HTTP error: ${response.status}`;
+        try {
+          const errorBody = response.json;
+          if (errorBody?.error?.message) {
+            errorMessage = errorBody.error.message;
+          } else if (typeof response.text === 'string' && response.text.length > 0) {
+            errorMessage = response.text;
+          }
+        } catch {
+          // If JSON parsing fails, use the raw text if available
+          if (typeof response.text === 'string' && response.text.length > 0) {
+            errorMessage = response.text;
+          }
+        }
+
+        throw new Error(errorMessage);
       }
 
       console.log('[Vault AI] Response JSON:', response.json);
