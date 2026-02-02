@@ -2182,6 +2182,237 @@
 }
 
 /* ============================================================================
+   Model Management
+   ============================================================================ */
+
+.vault-ai-model-manage-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: var(--vai-radius-sm);
+  cursor: pointer;
+  transition: all var(--vai-timing-fast) var(--vai-easing);
+  margin-left: var(--vai-space-1);
+}
+
+.vault-ai-model-manage-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* Model Management Modal */
+.vault-ai-model-modal {
+  width: 600px;
+  max-width: 90vw;
+}
+
+.vault-ai-model-modal h2 {
+  margin: 0 0 var(--vai-space-2) 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.vault-ai-model-modal-description {
+  margin: 0 0 var(--vai-space-4) 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.vault-ai-model-modal-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--vai-space-4);
+}
+
+.vault-ai-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--vai-space-2);
+  padding: var(--vai-space-2) var(--vai-space-3);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--vai-radius-sm);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--vai-timing-fast) var(--vai-easing);
+}
+
+.vault-ai-refresh-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.vault-ai-model-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--vai-radius-md);
+}
+
+.vault-ai-model-empty {
+  padding: var(--vai-space-6);
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.vault-ai-model-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--vai-space-4);
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  transition: all var(--vai-timing-fast) var(--vai-easing);
+}
+
+.vault-ai-model-item:last-child {
+  border-bottom: none;
+}
+
+.vault-ai-model-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.vault-ai-model-item.loaded {
+  background: linear-gradient(90deg, var(--vai-success-soft) 0%, transparent 100%);
+}
+
+.vault-ai-model-item.loaded:hover {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, var(--background-modifier-hover) 100%);
+}
+
+.vault-ai-model-item.selected {
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.vault-ai-model-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.vault-ai-model-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--vai-space-2);
+  margin-bottom: var(--vai-space-1);
+}
+
+.vault-ai-model-status {
+  font-size: 12px;
+  transition: color var(--vai-timing-fast) var(--vai-easing);
+}
+
+.vault-ai-model-status.loaded {
+  color: var(--vai-success);
+}
+
+.vault-ai-model-status.unloaded {
+  color: var(--text-faint);
+}
+
+.vault-ai-model-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vault-ai-model-selected-label {
+  font-size: 10px;
+  color: var(--interactive-accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vault-ai-model-details {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: var(--vai-space-1);
+}
+
+.vault-ai-model-config {
+  font-size: 11px;
+  color: var(--vai-success);
+  font-family: var(--font-monospace);
+}
+
+.vault-ai-model-actions {
+  display: flex;
+  gap: var(--vai-space-2);
+  margin-left: var(--vai-space-3);
+}
+
+.vault-ai-load-btn,
+.vault-ai-unload-btn {
+  padding: var(--vai-space-2) var(--vai-space-3);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--vai-radius-sm);
+  cursor: pointer;
+  transition: all var(--vai-timing-fast) var(--vai-easing);
+  white-space: nowrap;
+}
+
+.vault-ai-load-btn {
+  background: var(--interactive-accent);
+  border: none;
+  color: var(--text-on-accent);
+}
+
+.vault-ai-load-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.vault-ai-load-btn:disabled,
+.vault-ai-unload-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.vault-ai-unload-btn {
+  background: var(--background-modifier-border);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.vault-ai-unload-btn:hover {
+  background: var(--vai-error-soft);
+  border-color: var(--vai-error);
+  color: var(--vai-error);
+}
+
+/* Model list scrollbar */
+.vault-ai-model-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.vault-ai-model-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.vault-ai-model-list::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.vault-ai-model-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ============================================================================
    Print Styles
    ============================================================================ */
 

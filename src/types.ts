@@ -226,6 +226,79 @@ export interface LMStudioModel {
   owned_by: string;
 }
 
+// ============================================================================
+// LMStudio Model Management API Types (GET /api/v1/models)
+// ============================================================================
+
+export interface LMStudioModelQuantization {
+  name: string | null;
+  bits_per_weight: number | null;
+}
+
+export interface LMStudioModelLoadConfig {
+  context_length: number;
+  eval_batch_size?: number;
+  flash_attention?: boolean;
+  num_experts?: number;
+  offload_kv_cache_to_gpu?: boolean;
+}
+
+export interface LMStudioModelInstance {
+  id: string;
+  config: LMStudioModelLoadConfig;
+}
+
+export interface LMStudioModelCapabilities {
+  vision: boolean;
+  trained_for_tool_use: boolean;
+}
+
+export interface LMStudioModelInfo {
+  type: 'llm' | 'embedding';
+  publisher: string;
+  key: string;
+  display_name: string;
+  architecture?: string | null;
+  quantization: LMStudioModelQuantization | null;
+  size_bytes: number;
+  params_string: string | null;
+  loaded_instances: LMStudioModelInstance[];
+  max_context_length: number;
+  format: 'gguf' | 'mlx' | null;
+  capabilities?: LMStudioModelCapabilities;
+  description?: string | null;
+}
+
+export interface LMStudioModelsV1Response {
+  models: LMStudioModelInfo[];
+}
+
+export interface LMStudioLoadModelRequest {
+  model: string;
+  context_length?: number;
+  eval_batch_size?: number;
+  flash_attention?: boolean;
+  num_experts?: number;
+  offload_kv_cache_to_gpu?: boolean;
+  echo_load_config?: boolean;
+}
+
+export interface LMStudioLoadModelResponse {
+  type: 'llm' | 'embedding';
+  instance_id: string;
+  load_time_seconds: number;
+  status: 'loaded';
+  load_config?: LMStudioModelLoadConfig;
+}
+
+export interface LMStudioUnloadModelRequest {
+  instance_id: string;
+}
+
+export interface LMStudioUnloadModelResponse {
+  instance_id: string;
+}
+
 export interface LMStudioChatResponse {
   id: string;
   object: string;
