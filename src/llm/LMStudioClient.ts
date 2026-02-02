@@ -6,6 +6,11 @@ import {
   LMStudioStreamEvent,
   LMStudioStreamCallbacks,
   LMStudioMCPIntegration,
+  LMStudioModelInfo,
+  LMStudioModelsV1Response,
+  LMStudioLoadModelRequest,
+  LMStudioLoadModelResponse,
+  LMStudioUnloadModelResponse,
 } from '../types';
 
 export interface LMStudioChatOptions {
@@ -45,6 +50,73 @@ export class LMStudioClient extends LLMClient {
       return data.data.map((m: any) => m.id);
     } catch (error) {
       console.error('Failed to list LM Studio models:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * List all available models with detailed information using the new API
+   * Includes loaded_instances to show which models are currently loaded
+   */
+  async listModelsV1(): Promise<LMStudioModelInfo[]> {
+    try {
+      const data: LMStudioModelsV1Response = await this.request(
+        `${this.baseUrl}/api/v1/models`,
+        'GET'
+      );
+      return data.models;
+    } catch (error) {
+      console.error('Failed to list LM Studio models (v1):', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load a model into memory
+   */
+  async loadModel(
+    modelKey: string,
+    options: Omit<LMStudioLoadModelRequest, 'model'> = {}
+  ): Promise<LMStudioLoadModelResponse> {
+    try {
+      const requestBody: LMStudioLoadModelRequest = {
+        model: modelKey,
+        ...options,
+      };
+
+      console.log('[Vault AI] Loading model:', modelKey, options);
+
+      const response: LMStudioLoadModelResponse = await this.request(
+        `${this.baseUrl}/api/v1/models/load`,
+        'POST',
+        requestBody
+      );
+
+      console.log('[Vault AI] Model loaded successfully:', response);
+      return response;
+    } catch (error) {
+      console.error('Failed to load model:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Unload a model instance from memory
+   */
+  async unloadModel(instanceId: string): Promise<LMStudioUnloadModelResponse> {
+    try {
+      console.log('[Vault AI] Unloading model instance:', instanceId);
+
+      const response: LMStudioUnloadModelResponse = await this.request(
+        `${this.baseUrl}/api/v1/models/unload`,
+        'POST',
+        { instance_id: instanceId }
+      );
+
+      console.log('[Vault AI] Model unloaded successfully:', response);
+      return response;
+    } catch (error) {
+      console.error('Failed to unload model:', error);
       throw error;
     }
   }

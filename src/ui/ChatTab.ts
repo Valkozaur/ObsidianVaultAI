@@ -1,7 +1,7 @@
-import { MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip } from 'obsidian';
+import { MarkdownRenderer, Notice, TFile, setIcon, Menu, setTooltip, Modal, App } from 'obsidian';
 import type VaultAIPlugin from '../main';
 import type { VaultAIView } from './SidebarView';
-import { ChatMessage, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep, ToolCallInfo, ReasoningLevel } from '../types';
+import { ChatMessage, SearchStep, Conversation, LMStudioStreamCallbacks, AgentStep, ToolCallInfo, ReasoningLevel, LMStudioModelInfo } from '../types';
 import { AgenticSearch } from '../search/AgenticSearch';
 import { LMStudioClient, LMStudioChatResult } from '../llm/LMStudioClient';
 import { ChatAgent } from '../agent/ChatAgent';
@@ -172,6 +172,17 @@ export class ChatTab {
       if (model) {
         await this.plugin.setSelectedModel(model);
       }
+    });
+
+    // Model management button
+    const modelManageBtn = modelContainer.createEl('button', {
+      cls: 'vault-ai-model-manage-btn clickable-icon',
+      attr: { 'aria-label': 'Manage models' },
+    });
+    setIcon(modelManageBtn, 'settings');
+    setTooltip(modelManageBtn, 'Manage models');
+    modelManageBtn.addEventListener('click', () => {
+      this.showModelManagementModal();
     });
 
     // Reasoning selector
@@ -1171,14 +1182,25 @@ Please answer the question based on the information found.`;
     }
 
     for (const model of models) {
+      const modelInfo = this.plugin.getModelInfo(model);
+      const isLoaded = modelInfo && modelInfo.loaded_instances.length > 0;
+      const displayName = modelInfo?.display_name || model;
+      const statusIndicator = isLoaded ? '● ' : '○ ';
+
       const option = this.modelDropdown.createEl('option', {
-        text: model,
+        text: `${statusIndicator}${displayName}`,
         value: model,
       });
       if (model === this.plugin.settings.selectedModel) {
         option.selected = true;
       }
     }
+  }
+
+  private showModelManagementModal(): void {
+    new ModelManagementModal(this.plugin.app, this.plugin, () => {
+      this.populateModelDropdown();
+    }).open();
   }
 
   refreshModelDropdown(): void {
@@ -1234,5 +1256,254 @@ Please answer the question based on the information found.`;
   // Load a specific conversation (used when opening from new window)
   async loadConversation(conversationId: string): Promise<void> {
     await this.switchToConversation(conversationId);
+  }
+}
+
+/**
+ * Modal for managing models (load/unload)
+ */
+class ModelManagementModal extends Modal {
+  private plugin: VaultAIPlugin;
+  private onRefresh: () => void;
+  private contentEl: HTMLElement | null = null;
+  private isLoading = false;
+
+  constructor(app: App, plugin: VaultAIPlugin, onRefresh: () => void) {
+    super(app);
+    this.plugin = plugin;
+    this.onRefresh = onRefresh;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    this.contentEl = contentEl;
+    contentEl.addClass('vault-ai-model-modal');
+
+    contentEl.createEl('h2', { text: 'Model Management' });
+
+    const description = contentEl.createEl('p', {
+      cls: 'vault-ai-model-modal-description',
+    });
+    description.setText('Load and unload models. Loaded models (●) are ready for use.');
+
+    // Refresh button
+    const headerControls = contentEl.createDiv('vault-ai-model-modal-controls');
+    const refreshBtn = headerControls.createEl('button', {
+      text: 'Refresh',
+      cls: 'vault-ai-refresh-btn',
+    });
+    setIcon(refreshBtn, 'refresh-cw');
+    refreshBtn.addEventListener('click', async () => {
+      await this.refreshModels();
+    });
+
+    // Model list container
+    const listContainer = contentEl.createDiv('vault-ai-model-list');
+    this.renderModelList(listContainer);
+  }
+
+  private async refreshModels(): Promise<void> {
+    if (this.isLoading) return;
+
+    this.isLoading = true;
+    try {
+      await this.plugin.loadAvailableModels();
+      this.onRefresh();
+
+      // Re-render the list
+      const listContainer = this.contentEl?.querySelector('.vault-ai-model-list');
+      if (listContainer) {
+        listContainer.empty();
+        this.renderModelList(listContainer as HTMLElement);
+      }
+    } catch (error) {
+      new Notice(`Failed to refresh models: ${error}`);
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  private renderModelList(container: HTMLElement): void {
+    const models = this.plugin.availableModelsInfo.filter(m => m.type === 'llm');
+
+    if (models.length === 0) {
+      container.createEl('p', {
+        text: 'No models available. Make sure LM Studio is running.',
+        cls: 'vault-ai-model-empty',
+      });
+      return;
+    }
+
+    for (const model of models) {
+      this.renderModelItem(container, model);
+    }
+  }
+
+  private renderModelItem(container: HTMLElement, model: LMStudioModelInfo): void {
+    const isLoaded = model.loaded_instances.length > 0;
+    const isSelected = model.key === this.plugin.settings.selectedModel;
+
+    const item = container.createDiv({
+      cls: `vault-ai-model-item ${isLoaded ? 'loaded' : ''} ${isSelected ? 'selected' : ''}`,
+    });
+
+    // Model info section
+    const infoSection = item.createDiv('vault-ai-model-info');
+
+    const nameRow = infoSection.createDiv('vault-ai-model-name-row');
+    const statusDot = nameRow.createSpan({
+      cls: `vault-ai-model-status ${isLoaded ? 'loaded' : 'unloaded'}`,
+      text: isLoaded ? '●' : '○',
+    });
+    setTooltip(statusDot, isLoaded ? 'Loaded' : 'Not loaded');
+
+    nameRow.createSpan({
+      text: model.display_name,
+      cls: 'vault-ai-model-name',
+    });
+
+    if (isSelected) {
+      nameRow.createSpan({
+        text: '(selected)',
+        cls: 'vault-ai-model-selected-label',
+      });
+    }
+
+    // Model details
+    const detailsRow = infoSection.createDiv('vault-ai-model-details');
+    const details: string[] = [];
+
+    if (model.params_string) {
+      details.push(model.params_string);
+    }
+    if (model.quantization?.name) {
+      details.push(model.quantization.name);
+    }
+    if (model.architecture) {
+      details.push(model.architecture);
+    }
+    const sizeGB = (model.size_bytes / (1024 * 1024 * 1024)).toFixed(1);
+    details.push(`${sizeGB} GB`);
+
+    detailsRow.setText(details.join(' • '));
+
+    // Show context length if loaded
+    if (isLoaded && model.loaded_instances[0]?.config) {
+      const config = model.loaded_instances[0].config;
+      const configDetails: string[] = [];
+      configDetails.push(`Context: ${config.context_length.toLocaleString()}`);
+      if (config.flash_attention) {
+        configDetails.push('Flash Attn');
+      }
+      const configRow = infoSection.createDiv('vault-ai-model-config');
+      configRow.setText(configDetails.join(' • '));
+    }
+
+    // Action buttons
+    const actionsSection = item.createDiv('vault-ai-model-actions');
+
+    if (isLoaded) {
+      // Unload button
+      const unloadBtn = actionsSection.createEl('button', {
+        text: 'Unload',
+        cls: 'vault-ai-unload-btn',
+      });
+      unloadBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.unloadModel(model, unloadBtn);
+      });
+    } else {
+      // Load button
+      const loadBtn = actionsSection.createEl('button', {
+        text: 'Load',
+        cls: 'vault-ai-load-btn',
+      });
+      loadBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.loadModel(model, loadBtn);
+      });
+    }
+
+    // Click to select model
+    item.addEventListener('click', async () => {
+      await this.plugin.setSelectedModel(model.key);
+      this.onRefresh();
+
+      // Re-render to update selection indicator
+      const listContainer = this.contentEl?.querySelector('.vault-ai-model-list');
+      if (listContainer) {
+        listContainer.empty();
+        this.renderModelList(listContainer as HTMLElement);
+      }
+    });
+  }
+
+  private async loadModel(model: LMStudioModelInfo, button: HTMLButtonElement): Promise<void> {
+    if (this.isLoading) return;
+
+    this.isLoading = true;
+    const originalText = button.textContent;
+    button.textContent = 'Loading...';
+    button.disabled = true;
+
+    try {
+      await this.plugin.loadModel(model.key);
+      new Notice(`Model "${model.display_name}" loaded successfully`);
+      this.onRefresh();
+
+      // Re-render the list
+      const listContainer = this.contentEl?.querySelector('.vault-ai-model-list');
+      if (listContainer) {
+        listContainer.empty();
+        this.renderModelList(listContainer as HTMLElement);
+      }
+    } catch (error) {
+      new Notice(`Failed to load model: ${error}`);
+      button.textContent = originalText;
+      button.disabled = false;
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  private async unloadModel(model: LMStudioModelInfo, button: HTMLButtonElement): Promise<void> {
+    if (this.isLoading) return;
+
+    if (model.loaded_instances.length === 0) {
+      new Notice('Model is not loaded');
+      return;
+    }
+
+    this.isLoading = true;
+    const originalText = button.textContent;
+    button.textContent = 'Unloading...';
+    button.disabled = true;
+
+    try {
+      // Unload all instances
+      for (const instance of model.loaded_instances) {
+        await this.plugin.unloadModel(instance.id);
+      }
+      new Notice(`Model "${model.display_name}" unloaded`);
+      this.onRefresh();
+
+      // Re-render the list
+      const listContainer = this.contentEl?.querySelector('.vault-ai-model-list');
+      if (listContainer) {
+        listContainer.empty();
+        this.renderModelList(listContainer as HTMLElement);
+      }
+    } catch (error) {
+      new Notice(`Failed to unload model: ${error}`);
+      button.textContent = originalText;
+      button.disabled = false;
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  onClose(): void {
+    const { contentEl } = this;
+    contentEl.empty();
   }
 }

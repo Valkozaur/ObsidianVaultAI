@@ -1,5 +1,5 @@
 import { Plugin, WorkspaceLeaf } from 'obsidian';
-import { VaultAISettings, DEFAULT_SETTINGS, ConnectionStatus } from './types';
+import { VaultAISettings, DEFAULT_SETTINGS, ConnectionStatus, LMStudioModelInfo } from './types';
 import { VaultAISettingTab } from './settings';
 import { LLMClient } from './llm/LLMClient';
 import { LMStudioClient } from './llm/LMStudioClient';
@@ -16,6 +16,7 @@ export default class VaultAIPlugin extends Plugin {
   connectionStatus: ConnectionStatus = 'offline';
   chatHistory: ChatHistoryManager = null!;
   availableModels: string[] = [];
+  availableModelsInfo: LMStudioModelInfo[] = [];
   mcpServer: MCPServer | null = null;
 
   private statusBarItem: HTMLElement | null = null;
@@ -192,16 +193,26 @@ export default class VaultAIPlugin extends Plugin {
   async loadAvailableModels(): Promise<string[]> {
     if (!this.llmClient) {
       this.availableModels = [];
+      this.availableModelsInfo = [];
       return [];
     }
 
     try {
-      this.availableModels = await this.llmClient.listModels();
+      // Load full model info using the new API
+      const lmClient = this.llmClient as LMStudioClient;
+      this.availableModelsInfo = await lmClient.listModelsV1();
 
-      // Auto-select first model if none is selected
+      // Filter to only LLM models and extract keys for backwards compatibility
+      const llmModels = this.availableModelsInfo.filter(m => m.type === 'llm');
+      this.availableModels = llmModels.map(m => m.key);
+
+      // Auto-select first loaded model if none is selected, or first available model
       if (!this.settings.selectedModel && this.availableModels.length > 0) {
-        this.settings.selectedModel = this.availableModels[0];
-        this.llmClient.setModel(this.availableModels[0]);
+        // Prefer a loaded model
+        const loadedModel = llmModels.find(m => m.loaded_instances.length > 0);
+        const selectedModel = loadedModel?.key || this.availableModels[0];
+        this.settings.selectedModel = selectedModel;
+        this.llmClient.setModel(selectedModel);
         await this.saveData(this.settings);
       }
 
@@ -209,8 +220,56 @@ export default class VaultAIPlugin extends Plugin {
     } catch (error) {
       console.error('[Vault AI] Error loading models:', error);
       this.availableModels = [];
+      this.availableModelsInfo = [];
       return [];
     }
+  }
+
+  /**
+   * Load a model into memory
+   */
+  async loadModel(modelKey: string): Promise<void> {
+    if (!this.llmClient) {
+      throw new Error('LLM client not initialized');
+    }
+
+    const lmClient = this.llmClient as LMStudioClient;
+    await lmClient.loadModel(modelKey);
+
+    // Refresh model list to update loaded status
+    await this.loadAvailableModels();
+    this.updateViews();
+  }
+
+  /**
+   * Unload a model from memory
+   */
+  async unloadModel(instanceId: string): Promise<void> {
+    if (!this.llmClient) {
+      throw new Error('LLM client not initialized');
+    }
+
+    const lmClient = this.llmClient as LMStudioClient;
+    await lmClient.unloadModel(instanceId);
+
+    // Refresh model list to update loaded status
+    await this.loadAvailableModels();
+    this.updateViews();
+  }
+
+  /**
+   * Get detailed info for a specific model
+   */
+  getModelInfo(modelKey: string): LMStudioModelInfo | undefined {
+    return this.availableModelsInfo.find(m => m.key === modelKey);
+  }
+
+  /**
+   * Check if a model is currently loaded
+   */
+  isModelLoaded(modelKey: string): boolean {
+    const model = this.getModelInfo(modelKey);
+    return model ? model.loaded_instances.length > 0 : false;
   }
 
   async setSelectedModel(model: string): Promise<void> {
