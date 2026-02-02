@@ -489,4 +489,67 @@ export class LMStudioClient extends LLMClient {
       return false;
     }
   }
+
+  /**
+   * Generate a concise title for a chat session based on the first user message.
+   * This is designed to be called asynchronously without blocking the main chat response.
+   */
+  async generateSessionTitle(userMessage: string): Promise<string> {
+    if (!this.model) {
+      throw new Error('No model selected');
+    }
+
+    const systemPrompt = `You are a helpful assistant that generates concise, descriptive titles for chat conversations.
+Based on the user's first message, create a short title (3-6 words) that captures the main topic or intent.
+Rules:
+- Output ONLY the title, nothing else
+- No quotes, punctuation at the end, or explanations
+- Be specific but concise
+- Use title case`;
+
+    const input = `Generate a title for a conversation that starts with this message: "${userMessage}"`;
+
+    try {
+      const requestBody: LMStudioChatRequest = {
+        model: this.model,
+        input,
+        system_prompt: systemPrompt,
+        stream: false,
+        temperature: 0.7,
+        store: false, // Don't store title generation requests
+      };
+
+      const response: LMStudioNewChatResponse = await this.request(
+        `${this.baseUrl}/api/v1/chat`,
+        'POST',
+        requestBody
+      );
+
+      let title = '';
+      for (const item of response.output) {
+        if (item.type === 'message' && item.content) {
+          title += item.content;
+        }
+      }
+
+      // Clean up the title - remove quotes, trim, and limit length
+      title = title.trim().replace(/^["']|["']$/g, '').trim();
+
+      // Ensure title isn't too long (max 60 chars)
+      if (title.length > 60) {
+        title = title.substring(0, 57) + '...';
+      }
+
+      return title || 'New Chat';
+    } catch (error) {
+      console.error('[Vault AI] Error generating session title:', error);
+      // Return a fallback title based on the message content
+      const maxLength = 50;
+      const cleaned = userMessage.replace(/\s+/g, ' ').trim();
+      if (cleaned.length <= maxLength) {
+        return cleaned;
+      }
+      return cleaned.substring(0, maxLength).trim() + '...';
+    }
+  }
 }
