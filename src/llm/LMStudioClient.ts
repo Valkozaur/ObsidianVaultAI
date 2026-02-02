@@ -499,6 +499,10 @@ export class LMStudioClient extends LLMClient {
       throw new Error('No model selected');
     }
 
+    // Small delay to avoid race condition with the main chat request
+    // This ensures LM Studio's internal state is stable before making a second request
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     const systemPrompt = `You are a helpful assistant that generates concise, descriptive titles for chat conversations.
 Based on the user's first message, create a short title (3-6 words) that captures the main topic or intent.
 Rules:
@@ -517,6 +521,7 @@ Rules:
         stream: false,
         temperature: 0.7,
         store: false, // Don't store title generation requests
+        previous_response_id: undefined, // Explicitly ensure no conversation continuity
       };
 
       const response: LMStudioNewChatResponse = await this.request(
