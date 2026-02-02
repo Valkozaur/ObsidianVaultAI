@@ -1,5 +1,6 @@
 import type VaultAIPlugin from '../main';
 import { Conversation, ChatHistory, ChatMessage, ContextScope } from '../types';
+import { LMStudioClient } from '../llm/LMStudioClient';
 
 const CHAT_HISTORY_KEY = 'chat-history';
 
@@ -98,6 +99,51 @@ export class ChatHistoryManager {
     conversation.title = newTitle.trim() || 'Untitled';
     conversation.updatedAt = Date.now();
     await this.save();
+  }
+
+  /**
+   * Asynchronously generate an AI-powered title for a conversation based on the first message.
+   * This runs in the background and updates the conversation title when complete.
+   * Returns a callback function that can be used to refresh the UI after the title is updated.
+   */
+  async generateAITitle(
+    conversationId: string,
+    userMessage: string,
+    onTitleGenerated?: () => void
+  ): Promise<void> {
+    const conversation = this.getConversation(conversationId);
+    if (!conversation) return;
+
+    // Only generate AI title if the conversation still has the default title
+    if (conversation.title !== 'New Chat') return;
+
+    const llmClient = this.plugin.llmClient;
+    if (!(llmClient instanceof LMStudioClient)) {
+      console.warn('[Vault AI] LLM client does not support title generation');
+      return;
+    }
+
+    try {
+      console.log('[Vault AI] Generating AI title for conversation:', conversationId);
+      const aiTitle = await llmClient.generateSessionTitle(userMessage);
+
+      // Verify the conversation still exists and hasn't been renamed manually
+      const currentConversation = this.getConversation(conversationId);
+      if (currentConversation && currentConversation.title === 'New Chat') {
+        currentConversation.title = aiTitle;
+        currentConversation.updatedAt = Date.now();
+        await this.save();
+        console.log('[Vault AI] AI title generated:', aiTitle);
+
+        // Notify the UI to refresh
+        if (onTitleGenerated) {
+          onTitleGenerated();
+        }
+      }
+    } catch (error) {
+      console.error('[Vault AI] Failed to generate AI title:', error);
+      // Fallback: keep the simple truncated title that was already set
+    }
   }
 
   async updateLMStudioResponseId(conversationId: string, responseId: string): Promise<void> {

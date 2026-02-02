@@ -844,6 +844,10 @@ export class ChatTab {
         await this.createNewConversation();
       }
 
+      // Check if this is the first message (for async title generation)
+      const conversation = this.plugin.chatHistory.getConversation(this.currentConversationId!);
+      const isFirstMessage = conversation && conversation.messages.length === 0;
+
       // Add user message
       const userMsg: ChatMessage = {
         role: 'user',
@@ -856,6 +860,15 @@ export class ChatTab {
       this.inputEl.value = '';
       this.renderMessages();
       this.renderHistoryList(); // Update title if changed
+
+      // Trigger async AI title generation for first message (runs in parallel with response)
+      if (isFirstMessage) {
+        this.plugin.chatHistory.generateAITitle(
+          this.currentConversationId!,
+          userMessage,
+          () => this.renderHistoryList() // Refresh UI when title is ready
+        );
+      }
 
       // Check if MCP is enabled and server is running
       const mcpUrl = this.plugin.getMCPServerUrl();
