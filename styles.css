@@ -331,12 +331,14 @@
   text-overflow: ellipsis;
   margin-bottom: 3px;
   line-height: 1.3;
+  padding-left: var(--vai-space-1);
 }
 
 .vault-ai-history-item-date {
   font-size: 10px;
   color: var(--text-faint);
   letter-spacing: 0.02em;
+  padding-left: var(--vai-space-1);
 }
 
 /* Chat Area */

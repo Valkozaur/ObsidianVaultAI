@@ -815,35 +815,43 @@ export class ChatTab {
       return;
     }
 
-    // Create conversation if none exists
-    if (!this.currentConversationId) {
-      await this.createNewConversation();
-    }
-
-    // Add user message
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: userMessage,
-      timestamp: Date.now(),
-    };
-
-    await this.plugin.chatHistory.addMessage(this.currentConversationId!, userMsg);
-
-    this.inputEl.value = '';
-    this.renderMessages();
-    this.renderHistoryList(); // Update title if changed
-
-    // Process message
+    // Set processing state early and wrap everything in try/finally
     this.isProcessing = true;
     this.view.setConnectionStatus('thinking');
 
-    // Check if MCP is enabled and server is running
-    const mcpUrl = this.plugin.getMCPServerUrl();
+    try {
+      // Create conversation if none exists
+      if (!this.currentConversationId) {
+        await this.createNewConversation();
+      }
 
-    if (mcpUrl && this.plugin.settings.mcpEnabled) {
-      await this.sendMessageWithMCP(userMessage, mcpUrl);
-    } else {
-      await this.sendMessageLMStudio(userMessage);
+      // Add user message
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content: userMessage,
+        timestamp: Date.now(),
+      };
+
+      await this.plugin.chatHistory.addMessage(this.currentConversationId!, userMsg);
+
+      this.inputEl.value = '';
+      this.renderMessages();
+      this.renderHistoryList(); // Update title if changed
+
+      // Check if MCP is enabled and server is running
+      const mcpUrl = this.plugin.getMCPServerUrl();
+
+      if (mcpUrl && this.plugin.settings.mcpEnabled) {
+        await this.sendMessageWithMCP(userMessage, mcpUrl);
+      } else {
+        await this.sendMessageLMStudio(userMessage);
+      }
+    } catch (error) {
+      console.error('Error in sendMessage:', error);
+      new Notice(`Error sending message: ${error}`);
+    } finally {
+      this.isProcessing = false;
+      this.view.setConnectionStatus('ready');
     }
   }
 
@@ -943,8 +951,6 @@ export class ChatTab {
 
       await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
     } finally {
-      this.isProcessing = false;
-      this.view.setConnectionStatus('ready');
       this.renderMessages();
     }
   }
@@ -1044,8 +1050,6 @@ Please answer the question based on the information found.`;
 
       await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
     } finally {
-      this.isProcessing = false;
-      this.view.setConnectionStatus('ready');
       this.renderMessages();
     }
   }
