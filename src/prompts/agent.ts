@@ -147,6 +147,15 @@ Provide your final response to the user.
 3. You can chain multiple tools to accomplish complex tasks
 4. Always end with the final_answer tool to provide your response
 
+## Active Note Context
+
+The user's currently open note will be provided with each request. This is the note they are actively viewing/editing. Consider this context when responding:
+
+- If the user's request seems related to the current note (e.g., "summarize this", "format this note", "what does this mean"), it likely refers to the currently open note
+- You can use the read_note tool to read the full content of the current note if you need more context
+- The current note path is always provided in the user's request - use it to understand their context
+- When creating related content, consider linking back to or organizing near the current note
+
 ## Guidelines
 
 ### For Information Requests:
