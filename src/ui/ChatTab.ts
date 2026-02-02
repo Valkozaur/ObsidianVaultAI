@@ -855,6 +855,15 @@ export class ChatTab {
     }
   }
 
+  private getCurrentNoteContext(): string {
+    const currentFile = this.plugin.app.workspace.getActiveFile();
+    if (!currentFile) {
+      return '';
+    }
+    return `\n\nCurrently open note: "${currentFile.path}"
+If the user's request relates to "this note" or seems to reference their current context, this is the note they are viewing. You can read this file for more context if needed.`;
+  }
+
   private async sendMessageWithMCP(userMessage: string, mcpUrl: string): Promise<void> {
     const lmClient = this.plugin.llmClient as LMStudioClient;
 
@@ -866,7 +875,9 @@ export class ChatTab {
     // Create streaming message UI
     this.createStreamingMessage();
 
-    const systemPrompt = this.plugin.settings.systemPrompt;
+    // Include current note context in system prompt
+    const currentNoteContext = this.getCurrentNoteContext();
+    const systemPrompt = this.plugin.settings.systemPrompt + currentNoteContext;
 
     try {
       const result = await lmClient.chatWithMCP(userMessage, mcpUrl, {
@@ -968,12 +979,18 @@ export class ChatTab {
     // Create streaming message UI
     this.createStreamingMessage();
 
+    // Get current note context
+    const currentFile = this.plugin.app.workspace.getActiveFile();
+    const currentNoteInfo = currentFile
+      ? `\n\nCurrently open note: "${currentFile.path}" - If the user's request seems related to their current context, this is the note they are viewing.`
+      : '';
+
     const systemPrompt = `You are a helpful assistant that answers questions based on the user's personal notes.
 Be concise and helpful. When answering:
 - Directly answer the question based on the provided notes
 - Mention which notes contain the relevant information
 - If the notes don't contain enough information to fully answer, say so
-- Do not make up information that isn't in the notes`;
+- Do not make up information that isn't in the notes${currentNoteInfo}`;
 
     // Build context from vault search
     const search = new AgenticSearch(this.plugin);
@@ -981,8 +998,12 @@ Be concise and helpful. When answering:
 
     // Build input with context
     let input = userMessage;
+
+    // Add current note context to the input
+    const currentNoteContext = currentFile ? `\n\n(Currently open note: "${currentFile.path}")` : '';
+
     if (searchResult.sources.length > 0) {
-      input = `Based on the following notes from my vault, please answer this question: "${userMessage}"
+      input = `Based on the following notes from my vault, please answer this question: "${userMessage}"${currentNoteContext}
 
 --- NOTES FROM VAULT ---
 
@@ -991,6 +1012,8 @@ ${searchResult.sources.map((s) => `Source: ${s}`).join('\n')}
 --- END OF NOTES ---
 
 Please answer the question based on the information found.`;
+    } else if (currentFile) {
+      input = `${userMessage}${currentNoteContext}`;
     }
 
     try {

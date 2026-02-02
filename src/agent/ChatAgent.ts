@@ -258,13 +258,23 @@ export class ChatAgent {
     };
 
     const currentFile = this.app.workspace.getActiveFile();
-    const currentPath = currentFile?.path || 'No file currently open';
+    const currentPath = currentFile?.path || null;
+
+    let contextInfo = '';
+    if (currentPath) {
+      contextInfo = `Current context:
+- Currently open note: "${currentPath}"
+  (You can use read_note with this path if you need the note's content for context)
+- Search scope: ${scopeDescription[scope]}`;
+    } else {
+      contextInfo = `Current context:
+- No note currently open
+- Search scope: ${scopeDescription[scope]}`;
+    }
 
     return `User request: "${query}"
 
-Current context:
-- Current file: ${currentPath}
-- Search scope: ${scopeDescription[scope]}
+${contextInfo}
 
 Please help the user with their request. Use the available tools to search, read, create, or modify notes as needed. When done, use the final_answer tool to provide your response.`;
   }
