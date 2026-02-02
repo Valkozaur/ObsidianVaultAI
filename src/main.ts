@@ -127,9 +127,16 @@ export default class VaultAIPlugin extends Plugin {
   }
 
   async saveSettings(): Promise<void> {
+    const previousUrl = this.llmClient?.getBaseUrl();
+    const previousModel = this.llmClient?.getModel();
+
     await this.saveData(this.settings);
-    this.initializeLLMClient();
-    this.checkConnection();
+
+    // Only reinitialize client and check connection if URL or model changed
+    if (previousUrl !== this.settings.serverUrl || previousModel !== this.settings.selectedModel) {
+      this.initializeLLMClient();
+      this.checkConnection();
+    }
   }
 
   initializeLLMClient(): void {

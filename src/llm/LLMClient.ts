@@ -14,6 +14,14 @@ export abstract class LLMClient {
     this.model = model;
   }
 
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  getModel(): string {
+    return this.model;
+  }
+
   abstract listModels(): Promise<string[]>;
   abstract chat(messages: LLMMessage[]): Promise<string>;
   abstract chatStream(
