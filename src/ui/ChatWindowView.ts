@@ -683,17 +683,25 @@ export class ChatWindowView extends ItemView {
     // Update displayed title if this is the first message
     this.updateDisplayedTitle();
 
-    // Process message
+    // Process message - wrap in try/finally to ensure state is always reset
     this.isProcessing = true;
     this.plugin.setConnectionStatus('thinking');
 
-    // Check if using LMStudio with new API
-    const isLMStudio = this.plugin.settings.serverType === 'lmstudio';
+    try {
+      // Check if using LMStudio with new API
+      const isLMStudio = this.plugin.settings.serverType === 'lmstudio';
 
-    if (isLMStudio) {
-      await this.sendMessageLMStudio(userMessage);
-    } else {
-      await this.sendMessageLegacy(userMessage);
+      if (isLMStudio) {
+        await this.sendMessageLMStudio(userMessage);
+      } else {
+        await this.sendMessageLegacy(userMessage);
+      }
+    } catch (error) {
+      console.error('Error in sendMessage:', error);
+      new Notice(`Error sending message: ${error}`);
+    } finally {
+      this.isProcessing = false;
+      this.plugin.setConnectionStatus('ready');
     }
   }
 

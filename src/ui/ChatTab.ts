@@ -951,6 +951,8 @@ export class ChatTab {
 
       await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
     } finally {
+      this.isProcessing = false;
+      this.view.setConnectionStatus('ready');
       this.renderMessages();
     }
   }
@@ -1050,6 +1052,8 @@ Please answer the question based on the information found.`;
 
       await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
     } finally {
+      this.isProcessing = false;
+      this.view.setConnectionStatus('ready');
       this.renderMessages();
     }
   }
