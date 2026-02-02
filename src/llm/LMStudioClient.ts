@@ -272,6 +272,7 @@ export class LMStudioClient extends LLMClient {
       let buffer = '';
       const toolCalls: ToolCallResult[] = [];
       let currentToolCall: Partial<ToolCallResult> | null = null;
+      let streamError: { type: string; message: string } | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -306,6 +307,7 @@ export class LMStudioClient extends LLMClient {
                   getCurrentToolCall: () => currentToolCall,
                   setCurrentToolCall: (tc) => (currentToolCall = tc),
                   addToolCall: (tc) => toolCalls.push(tc as ToolCallResult),
+                  setError: (err) => (streamError = err),
                 });
               } catch (e) {
                 console.warn('[Vault AI] Failed to parse SSE event:', eventData, e);
@@ -320,6 +322,18 @@ export class LMStudioClient extends LLMClient {
             eventData = null;
           }
         }
+
+        // Break out of stream loop if an error occurred
+        if (streamError) {
+          console.error('[Vault AI] Stream error received, breaking loop:', streamError);
+          reader.cancel();
+          break;
+        }
+      }
+
+      // If a stream error occurred, throw it so it's properly handled
+      if (streamError) {
+        throw new Error(streamError.message);
       }
 
       return {
@@ -353,6 +367,7 @@ export class LMStudioClient extends LLMClient {
       getCurrentToolCall: () => Partial<ToolCallResult> | null;
       setCurrentToolCall: (tc: Partial<ToolCallResult> | null) => void;
       addToolCall: (tc: ToolCallResult) => void;
+      setError: (err: { type: string; message: string }) => void;
     }
   ): void {
     switch (event.type) {
@@ -442,6 +457,8 @@ export class LMStudioClient extends LLMClient {
       case 'error':
         if (event.error) {
           callbacks.onError?.(event.error);
+          // Set the error so the stream loop can break and throw
+          state.setError(event.error);
         }
         break;
 

@@ -846,6 +846,14 @@ Please answer the question based on the information found.`;
       console.error('LMStudio chat error:', error);
       this.finalizeStreamingMessage();
 
+      // Check if this is a prediction history error (LM Studio bug)
+      const errorStr = String(error);
+      if (errorStr.includes('shard') || errorStr.includes('prediction history') || errorStr.includes('previous_response')) {
+        console.warn('[Vault AI] Prediction history error detected, clearing response ID');
+        await this.plugin.chatHistory.updateLMStudioResponseId(this.conversationId!, undefined as any);
+        new Notice('LM Studio conversation history error. The conversation has been reset - please try again.');
+      }
+
       const errorMsg: ChatMessage = {
         role: 'assistant',
         content: `I encountered an error: ${error}. Please try again.`,
