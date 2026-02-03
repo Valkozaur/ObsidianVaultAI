@@ -1274,7 +1274,7 @@ class ModelManagementModal extends Modal {
     this.onRefresh = onRefresh;
   }
 
-  onOpen(): void {
+  async onOpen(): Promise<void> {
     const { contentEl } = this;
     this.contentEl = contentEl;
     contentEl.addClass('vault-ai-model-modal');
@@ -1299,7 +1299,17 @@ class ModelManagementModal extends Modal {
 
     // Model list container
     const listContainer = contentEl.createDiv('vault-ai-model-list');
-    this.renderModelList(listContainer);
+
+    // Auto-refresh if no model info available
+    if (this.plugin.availableModelsInfo.length === 0) {
+      listContainer.createEl('p', {
+        text: 'Loading models...',
+        cls: 'vault-ai-model-empty',
+      });
+      await this.refreshModels();
+    } else {
+      this.renderModelList(listContainer);
+    }
   }
 
   private async refreshModels(): Promise<void> {
@@ -1325,6 +1335,38 @@ class ModelManagementModal extends Modal {
 
   private renderModelList(container: HTMLElement): void {
     const models = this.plugin.availableModelsInfo.filter(m => m.type === 'llm');
+
+    // Check if we have detailed model info (new API) or just model names (legacy API)
+    if (models.length === 0 && this.plugin.availableModels.length > 0) {
+      // Legacy API mode - show basic list without load/unload
+      const notice = container.createDiv('vault-ai-model-legacy-notice');
+      notice.createEl('p', {
+        text: 'Model management requires LM Studio 0.3.6 or later.',
+        cls: 'vault-ai-model-empty',
+      });
+      notice.createEl('p', {
+        text: 'Available models:',
+        cls: 'vault-ai-model-legacy-label',
+      });
+      const list = notice.createEl('ul', { cls: 'vault-ai-model-legacy-list' });
+      for (const modelKey of this.plugin.availableModels) {
+        const isSelected = modelKey === this.plugin.settings.selectedModel;
+        const li = list.createEl('li', {
+          text: `${isSelected ? '● ' : '○ '}${modelKey}`,
+          cls: isSelected ? 'selected' : '',
+        });
+        li.addEventListener('click', async () => {
+          await this.plugin.setSelectedModel(modelKey);
+          this.onRefresh();
+          const listContainer = this.contentEl?.querySelector('.vault-ai-model-list');
+          if (listContainer) {
+            listContainer.empty();
+            this.renderModelList(listContainer as HTMLElement);
+          }
+        });
+      }
+      return;
+    }
 
     if (models.length === 0) {
       container.createEl('p', {
