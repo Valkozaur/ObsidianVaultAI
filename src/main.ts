@@ -243,19 +243,59 @@ export default class VaultAIPlugin extends Plugin {
   }
 
   /**
-   * Load a model into memory
+   * Load a model into memory with settings from plugin config
    */
-  async loadModel(modelKey: string): Promise<void> {
+  async loadModel(modelKey: string, options?: { context_length?: number; flash_attention?: boolean }): Promise<void> {
     if (!this.llmClient) {
       throw new Error('LLM client not initialized');
     }
 
     const lmClient = this.llmClient as LMStudioClient;
-    await lmClient.loadModel(modelKey);
+    const loadOptions = {
+      context_length: options?.context_length ?? this.settings.modelContextLength,
+      flash_attention: options?.flash_attention ?? this.settings.modelFlashAttention,
+      echo_load_config: true,
+    };
+
+    await lmClient.loadModel(modelKey, loadOptions);
 
     // Refresh model list to update loaded status
     await this.loadAvailableModels();
     this.updateViews();
+  }
+
+  /**
+   * Ensure the selected model is loaded, unloading any other models first.
+   * Called before sending messages.
+   */
+  async ensureModelLoaded(): Promise<void> {
+    if (!this.llmClient || !this.settings.selectedModel) return;
+
+    // Refresh model info to get current loaded state
+    await this.loadAvailableModels();
+
+    const selectedModelInfo = this.getModelInfo(this.settings.selectedModel);
+    if (!selectedModelInfo) return;
+
+    // If the selected model is already loaded, nothing to do
+    if (selectedModelInfo.loaded_instances.length > 0) return;
+
+    // Unload all currently loaded LLM models
+    const loadedModels = this.availableModelsInfo.filter(
+      m => m.type === 'llm' && m.loaded_instances.length > 0
+    );
+    for (const model of loadedModels) {
+      for (const instance of model.loaded_instances) {
+        try {
+          await this.unloadModel(instance.id);
+        } catch (error) {
+          console.error(`[Vault AI] Failed to unload model instance ${instance.id}:`, error);
+        }
+      }
+    }
+
+    // Load the selected model with configured settings
+    await this.loadModel(this.settings.selectedModel);
   }
 
   /**
