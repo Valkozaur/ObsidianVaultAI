@@ -15,6 +15,8 @@ export interface VaultAISettings {
   mcpPort: number;
   systemPrompt: string;
   reasoning: ReasoningLevel;
+  modelContextLength: number;
+  modelFlashAttention: boolean;
 }
 
 export const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant with access to the user's Obsidian vault through MCP tools.
@@ -34,6 +36,8 @@ export const DEFAULT_SETTINGS: VaultAISettings = {
   mcpPort: 3456,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reasoning: 'auto',
+  modelContextLength: 16384,
+  modelFlashAttention: true,
 };
 
 // ============================================================================

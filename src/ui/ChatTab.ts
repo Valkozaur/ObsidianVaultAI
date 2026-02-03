@@ -850,6 +850,14 @@ export class ChatTab {
     this.view.setConnectionStatus('thinking');
 
     try {
+      // Ensure selected model is loaded (auto unload/load)
+      try {
+        await this.plugin.ensureModelLoaded();
+      } catch (error) {
+        console.error('[Vault AI] Failed to ensure model loaded:', error);
+        new Notice(`Failed to load model: ${error}`);
+      }
+
       // Create conversation if none exists
       if (!this.currentConversationId) {
         await this.createNewConversation();
@@ -1267,6 +1275,8 @@ class ModelManagementModal extends Modal {
   private onRefresh: () => void;
   private contentEl: HTMLElement | null = null;
   private isLoading = false;
+  private contextLengthInput: HTMLInputElement | null = null;
+  private flashAttentionToggle: HTMLInputElement | null = null;
 
   constructor(app: App, plugin: VaultAIPlugin, onRefresh: () => void) {
     super(app);
@@ -1284,7 +1294,10 @@ class ModelManagementModal extends Modal {
     const description = contentEl.createEl('p', {
       cls: 'vault-ai-model-modal-description',
     });
-    description.setText('Load and unload models. Loaded models (●) are ready for use.');
+    description.setText('Configure load settings and manage models. Click a model to select it.');
+
+    // Load settings section
+    this.renderLoadSettings(contentEl);
 
     // Refresh button
     const headerControls = contentEl.createDiv('vault-ai-model-modal-controls');
@@ -1310,6 +1323,73 @@ class ModelManagementModal extends Modal {
     } else {
       this.renderModelList(listContainer);
     }
+  }
+
+  private renderLoadSettings(container: HTMLElement): void {
+    const settingsSection = container.createDiv('vault-ai-model-settings');
+
+    settingsSection.createEl('h3', {
+      text: 'Load Settings',
+      cls: 'vault-ai-model-settings-title',
+    });
+
+    // Context length
+    const ctxRow = settingsSection.createDiv('vault-ai-model-setting-row');
+    const ctxLabel = ctxRow.createEl('label', {
+      text: 'Context Length',
+      cls: 'vault-ai-model-setting-label',
+    });
+    ctxLabel.setAttribute('for', 'vault-ai-ctx-length');
+
+    const ctxInputContainer = ctxRow.createDiv('vault-ai-model-setting-input');
+    this.contextLengthInput = ctxInputContainer.createEl('input', {
+      type: 'number',
+      cls: 'vault-ai-model-ctx-input',
+      value: String(this.plugin.settings.modelContextLength),
+      attr: {
+        id: 'vault-ai-ctx-length',
+        min: '512',
+        max: '131072',
+        step: '512',
+      },
+    });
+    ctxInputContainer.createEl('span', {
+      text: 'tokens',
+      cls: 'vault-ai-model-setting-unit',
+    });
+
+    this.contextLengthInput.addEventListener('change', async () => {
+      const val = parseInt(this.contextLengthInput!.value, 10);
+      if (!isNaN(val) && val >= 512) {
+        this.plugin.settings.modelContextLength = val;
+        await this.plugin.saveData(this.plugin.settings);
+      }
+    });
+
+    // Flash attention
+    const flashRow = settingsSection.createDiv('vault-ai-model-setting-row');
+    const flashLabel = flashRow.createEl('label', {
+      text: 'Flash Attention',
+      cls: 'vault-ai-model-setting-label',
+    });
+    flashLabel.setAttribute('for', 'vault-ai-flash-attn');
+
+    const flashInputContainer = flashRow.createDiv('vault-ai-model-setting-input');
+    this.flashAttentionToggle = flashInputContainer.createEl('input', {
+      type: 'checkbox',
+      cls: 'vault-ai-model-flash-toggle',
+      attr: { id: 'vault-ai-flash-attn' },
+    });
+    this.flashAttentionToggle.checked = this.plugin.settings.modelFlashAttention;
+    flashInputContainer.createEl('span', {
+      text: 'Optimize attention computation (reduces memory, improves speed)',
+      cls: 'vault-ai-model-setting-desc',
+    });
+
+    this.flashAttentionToggle.addEventListener('change', async () => {
+      this.plugin.settings.modelFlashAttention = this.flashAttentionToggle!.checked;
+      await this.plugin.saveData(this.plugin.settings);
+    });
   }
 
   private async refreshModels(): Promise<void> {
@@ -1426,6 +1506,7 @@ class ModelManagementModal extends Modal {
     }
     const sizeGB = (model.size_bytes / (1024 * 1024 * 1024)).toFixed(1);
     details.push(`${sizeGB} GB`);
+    details.push(`Max ctx: ${model.max_context_length.toLocaleString()}`);
 
     detailsRow.setText(details.join(' • '));
 
@@ -1434,8 +1515,8 @@ class ModelManagementModal extends Modal {
       const config = model.loaded_instances[0].config;
       const configDetails: string[] = [];
       configDetails.push(`Context: ${config.context_length.toLocaleString()}`);
-      if (config.flash_attention) {
-        configDetails.push('Flash Attn');
+      if (config.flash_attention !== undefined) {
+        configDetails.push(`Flash Attn: ${config.flash_attention ? 'On' : 'Off'}`);
       }
       const configRow = infoSection.createDiv('vault-ai-model-config');
       configRow.setText(configDetails.join(' • '));
@@ -1455,7 +1536,7 @@ class ModelManagementModal extends Modal {
         await this.unloadModel(model, unloadBtn);
       });
     } else {
-      // Load button
+      // Load button - uses current settings
       const loadBtn = actionsSection.createEl('button', {
         text: 'Load',
         cls: 'vault-ai-load-btn',
@@ -1489,8 +1570,23 @@ class ModelManagementModal extends Modal {
     button.disabled = true;
 
     try {
-      await this.plugin.loadModel(model.key);
-      new Notice(`Model "${model.display_name}" loaded successfully`);
+      // Read current settings from inputs
+      const contextLength = this.contextLengthInput
+        ? parseInt(this.contextLengthInput.value, 10)
+        : this.plugin.settings.modelContextLength;
+      const flashAttention = this.flashAttentionToggle
+        ? this.flashAttentionToggle.checked
+        : this.plugin.settings.modelFlashAttention;
+
+      await this.plugin.loadModel(model.key, {
+        context_length: contextLength,
+        flash_attention: flashAttention,
+      });
+
+      // Also select this model
+      await this.plugin.setSelectedModel(model.key);
+
+      new Notice(`Model "${model.display_name}" loaded (ctx: ${contextLength.toLocaleString()}, flash: ${flashAttention ? 'on' : 'off'})`);
       this.onRefresh();
 
       // Re-render the list
