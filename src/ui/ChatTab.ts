@@ -1016,48 +1016,55 @@ If the user's request relates to "this note" or seems to reference their current
 
       this.finalizeStreamingMessage();
 
-      // Check if this is a prediction history error (LM Studio bug)
-      const errorStr = String(error);
-      const isPredictionHistoryError = errorStr.includes('shard') || errorStr.includes('prediction history') || errorStr.includes('previous_response');
+      // Wrap error handling in try-catch to ensure state is always reset
+      try {
+        // Check if this is a prediction history error (LM Studio bug)
+        const errorStr = String(error);
+        const isPredictionHistoryError = errorStr.includes('shard') || errorStr.includes('prediction history') || errorStr.includes('previous_response');
 
-      if (isPredictionHistoryError) {
-        console.warn('[Vault AI] Prediction history error detected, clearing response ID');
-        await this.plugin.chatHistory.updateLMStudioResponseId(this.currentConversationId!, undefined as any);
-      }
-
-      // If we have partial content, save it instead of just the error
-      if (partialContent.trim()) {
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          content: partialContent,
-          timestamp: Date.now(),
-          reasoning: partialReasoning || undefined,
-        };
-        await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
-
-        // Show a notice about the error but don't lose the content
         if (isPredictionHistoryError) {
-          new Notice('LM Studio had an internal error, but the response was saved.');
+          console.warn('[Vault AI] Prediction history error detected, clearing response ID');
+          await this.plugin.chatHistory.updateLMStudioResponseId(this.currentConversationId!, undefined as any);
+        }
+
+        // If we have partial content, save it instead of just the error
+        if (partialContent.trim()) {
+          const assistantMsg: ChatMessage = {
+            role: 'assistant',
+            content: partialContent,
+            timestamp: Date.now(),
+            reasoning: partialReasoning || undefined,
+          };
+          await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
+
+          // Show a notice about the error but don't lose the content
+          if (isPredictionHistoryError) {
+            new Notice('LM Studio had an internal error, but the response was saved.');
+          } else {
+            new Notice(`Stream ended with error, but partial response was saved.`);
+          }
         } else {
-          new Notice(`Stream ended with error, but partial response was saved.`);
-        }
-      } else {
-        // No content was streamed, save error message
-        const errorMsg: ChatMessage = {
-          role: 'assistant',
-          content: `I encountered an error: ${error}. Please try again.`,
-          timestamp: Date.now(),
-        };
-        await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
+          // No content was streamed, save error message
+          const errorMsg: ChatMessage = {
+            role: 'assistant',
+            content: `I encountered an error: ${error}. Please try again.`,
+            timestamp: Date.now(),
+          };
+          await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
 
-        if (isPredictionHistoryError) {
-          new Notice('LM Studio conversation history error. The conversation has been reset - please try again.');
+          if (isPredictionHistoryError) {
+            new Notice('LM Studio conversation history error. The conversation has been reset - please try again.');
+          }
         }
+      } catch (saveError) {
+        console.error('Error saving message after stream error:', saveError);
+        new Notice('Failed to save response. Please try again.');
       }
     } finally {
       this.isProcessing = false;
       this.view.setConnectionStatus('ready');
       this.renderMessages();
+      this.inputEl?.focus();
     }
   }
 
@@ -1171,50 +1178,57 @@ Please answer the question based on the information found.`;
 
       this.finalizeStreamingMessage();
 
-      // Check if this is a prediction history error (LM Studio bug)
-      const errorStr = String(error);
-      const isPredictionHistoryError = errorStr.includes('shard') || errorStr.includes('prediction history') || errorStr.includes('previous_response');
+      // Wrap error handling in try-catch to ensure state is always reset
+      try {
+        // Check if this is a prediction history error (LM Studio bug)
+        const errorStr = String(error);
+        const isPredictionHistoryError = errorStr.includes('shard') || errorStr.includes('prediction history') || errorStr.includes('previous_response');
 
-      if (isPredictionHistoryError) {
-        console.warn('[Vault AI] Prediction history error detected, clearing response ID');
-        await this.plugin.chatHistory.updateLMStudioResponseId(this.currentConversationId!, undefined as any);
-      }
-
-      // If we have partial content, save it instead of just the error
-      if (partialContent.trim()) {
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          content: partialContent,
-          timestamp: Date.now(),
-          sources: searchResult.sources,
-          searchSteps: searchResult.steps,
-          reasoning: partialReasoning || undefined,
-        };
-        await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
-
-        // Show a notice about the error but don't lose the content
         if (isPredictionHistoryError) {
-          new Notice('LM Studio had an internal error, but the response was saved.');
+          console.warn('[Vault AI] Prediction history error detected, clearing response ID');
+          await this.plugin.chatHistory.updateLMStudioResponseId(this.currentConversationId!, undefined as any);
+        }
+
+        // If we have partial content, save it instead of just the error
+        if (partialContent.trim()) {
+          const assistantMsg: ChatMessage = {
+            role: 'assistant',
+            content: partialContent,
+            timestamp: Date.now(),
+            sources: searchResult.sources,
+            searchSteps: searchResult.steps,
+            reasoning: partialReasoning || undefined,
+          };
+          await this.plugin.chatHistory.addMessage(this.currentConversationId!, assistantMsg);
+
+          // Show a notice about the error but don't lose the content
+          if (isPredictionHistoryError) {
+            new Notice('LM Studio had an internal error, but the response was saved.');
+          } else {
+            new Notice(`Stream ended with error, but partial response was saved.`);
+          }
         } else {
-          new Notice(`Stream ended with error, but partial response was saved.`);
-        }
-      } else {
-        // No content was streamed, save error message
-        const errorMsg: ChatMessage = {
-          role: 'assistant',
-          content: `I encountered an error: ${error}. Please try again.`,
-          timestamp: Date.now(),
-        };
-        await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
+          // No content was streamed, save error message
+          const errorMsg: ChatMessage = {
+            role: 'assistant',
+            content: `I encountered an error: ${error}. Please try again.`,
+            timestamp: Date.now(),
+          };
+          await this.plugin.chatHistory.addMessage(this.currentConversationId!, errorMsg);
 
-        if (isPredictionHistoryError) {
-          new Notice('LM Studio conversation history error. The conversation has been reset - please try again.');
+          if (isPredictionHistoryError) {
+            new Notice('LM Studio conversation history error. The conversation has been reset - please try again.');
+          }
         }
+      } catch (saveError) {
+        console.error('Error saving message after stream error:', saveError);
+        new Notice('Failed to save response. Please try again.');
       }
     } finally {
       this.isProcessing = false;
       this.view.setConnectionStatus('ready');
       this.renderMessages();
+      this.inputEl?.focus();
     }
   }
 
